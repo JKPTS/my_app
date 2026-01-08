@@ -278,7 +278,7 @@ static void expfs_set_defaults_one(expfs_port_cfg_t *p)
     p->exp_action.ch = 1;
     p->exp_action.a = 0;     // cc#
     p->exp_action.b = 0;     // val1
-    p->exp_action.c = 127;   // val2
+    p->exp_action.c = 100;   // val2
 
     // default calibration (safe)
     p->cal_min = 0;

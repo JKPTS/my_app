@@ -328,3 +328,24 @@ input:focus, select:focus{
 .calRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
 .calVals{ color:var(--muted); font-size:12px; }
 
+
+
+/* exp calibrate wizard */
+.btn2.calNext{
+  border-color: rgba(255,77,77,.55);
+  color: var(--danger);
+}
+.btn2.calSave{
+  border-color: rgba(95,227,154,.55);
+  color: var(--ok);
+}
+.calHint{
+  margin-left:10px;
+  color: var(--muted);
+  font-size:13px;
+  white-space:nowrap;
+}
+@media (max-width: 520px){
+  .calHint{ white-space:normal; margin-left:0; margin-top:6px; display:block; }
+  .calRow{ gap:8px; }
+}

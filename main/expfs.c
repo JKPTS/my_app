@@ -1,6 +1,7 @@
 // ===== FILE: main/expfs.c =====
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,6 +18,17 @@
 #include "expfs.h"
 
 static const char *TAG = "EXPFS";
+
+// -------------------- EXP smoothing / curve --------------------
+// เป้าหมาย:
+// 1) ลด jitter (ค่านิ่งๆ ไม่แกว่ง +/-1)
+// 2) ทำสเกลให้สัมพันธ์กับระยะเท้ามากขึ้น (ชดเชย pot แบบ log/ไม่เชิงเส้น)
+#define EXP_SEND_THROTTLE_MS   (20)
+#define EXP_SEND_STABLE_MS     (10)
+#define EXP_IIR_SHIFT          (1)     // 2^3 = 8  (ยิ่งมากยิ่งเนียน)
+#define EXP_FORCE_DELTA        (1)     // diff >= 4 ส่งทันที (รู้สึกตอบสนอง)
+#define EXP_CURVE_GAMMA        (1.0f)  // 1.0 = linear LUT (ยังคง LUT ไว้เผื่อปรับภายหลัง)
+
 
 // -------------------- pin map (ตามที่กำหนดให้) --------------------
 typedef struct {
@@ -44,6 +56,17 @@ static uint16_t  s_last_raw[EXPFS_PORT_COUNT];
 static uint8_t   s_last_mapped[EXPFS_PORT_COUNT]; // last sent (0..127)
 static uint32_t  s_last_send_ms[EXPFS_PORT_COUNT];
 
+// exp runtime state (filter + stable send)
+static uint16_t s_raw_hist[EXPFS_PORT_COUNT][3];
+static uint8_t  s_raw_hist_idx[EXPFS_PORT_COUNT];
+static int32_t  s_raw_filt[EXPFS_PORT_COUNT]; // filtered raw (0..4095)
+static uint8_t  s_pending_mapped[EXPFS_PORT_COUNT];
+static uint32_t s_pending_since_ms[EXPFS_PORT_COUNT];
+
+static uint8_t  s_curve_lut[128];
+static uint8_t  s_curve_inited;
+
+
 // fs runtime state
 static uint8_t s_fs_last_level[EXPFS_PORT_COUNT][2]; // [port][tip=0 ring=1] 0=pressed 1=released
 static int     s_fs_hold_ms[EXPFS_PORT_COUNT][2];
@@ -67,6 +90,33 @@ static inline uint8_t clamp7(int v)
     if (v < 0) return 0;
     if (v > 127) return 127;
     return (uint8_t)v;
+}
+
+static inline uint16_t median3_u16(uint16_t a, uint16_t b, uint16_t c)
+{
+    // median of 3
+    if (a > b) { uint16_t t = a; a = b; b = t; }
+    if (b > c) { uint16_t t = b; b = c; c = t; }
+    if (a > b) { uint16_t t = a; a = b; b = t; }
+    return b;
+}
+
+static inline int iabs_local(int v) { return (v < 0) ? -v : v; }
+
+static void exp_curve_init_once(void)
+{
+    if (s_curve_inited) return;
+    for (int i = 0; i < 128; i++) {
+        float x = (float)i / 127.0f;
+        float y = powf(x, EXP_CURVE_GAMMA);
+        int v = (int)lroundf(y * 127.0f);
+        if (v < 0) v = 0;
+        if (v > 127) v = 127;
+        s_curve_lut[i] = (uint8_t)v;
+    }
+    s_curve_lut[0] = 0;
+    s_curve_lut[127] = 127;
+    s_curve_inited = 1;
 }
 
 static inline int pressed_pin(gpio_num_t g)
@@ -141,6 +191,18 @@ static void adc_init_once(void)
         s_last_send_ms[p] = 0;
     }
 
+    // exp filter init
+    exp_curve_init_once();
+    for (int p = 0; p < EXPFS_PORT_COUNT; p++) {
+        s_raw_hist[p][0] = 0;
+        s_raw_hist[p][1] = 0;
+        s_raw_hist[p][2] = 0;
+        s_raw_hist_idx[p] = 0;
+        s_raw_filt[p] = 0;
+        s_pending_mapped[p] = 0xFF;
+        s_pending_since_ms[p] = 0;
+    }
+
     // fs init
     for (int p = 0; p < EXPFS_PORT_COUNT; p++) {
         for (int k = 0; k < 2; k++) {
@@ -189,19 +251,37 @@ static uint8_t map_exp_value(const expfs_port_cfg_t *cfg, uint16_t raw)
 {
     if (!cfg) return 0;
 
-    int lo = (int)cfg->cal_min;
-    int hi = (int)cfg->cal_max;
+    // calibration meaning (ตาม UI):
+    // - cal_min = เหยียบลงสุด (toe)
+    // - cal_max = ยกขึ้นสุด (heel)
+    // ต้องการทิศทาง: "เหยียบลงค่าลด"  ✅
+    // ดังนั้น: toe(down) -> val ต่ำ, heel(up) -> val สูง
+    int lo = (int)cfg->cal_min; // down (toe)
+    int hi = (int)cfg->cal_max; // up   (heel)
+    int32_t denom = (int32_t)hi - (int32_t)lo;
 
-    // allow reversed calibration; normalize here
-    if (hi < lo) { int t = hi; hi = lo; lo = t; }
+    // avoid div0 / too small range
+    if (denom > -8 && denom < 8) return 0;
 
-    // avoid div0
-    if ((hi - lo) < 8) {
-        return 0;
-    }
+    // clamp raw into [min(lo,hi), max(lo,hi)]
+    int mn = (lo < hi) ? lo : hi;
+    int mx = (lo < hi) ? hi : lo;
+    int r = clampi_local((int)raw, mn, mx);
 
-    int r = clampi_local((int)raw, lo, hi);
-    int norm = (int)((int64_t)(r - lo) * 127LL / (int64_t)(hi - lo)); // 0..127
+    // base normalize: lo -> 0, hi -> 127 (denom may be negative)
+    int32_t num = (int32_t)r - (int32_t)lo;
+    int norm127 = (int)((int64_t)num * 127LL / (int64_t)denom);
+    norm127 = clampi_local(norm127, 0, 127);
+
+    // apply curve LUT (ตอนนี้ gamma=1 -> linear)
+    norm127 = (int)s_curve_lut[norm127];
+
+    // IMPORTANT: invert direction so "down decreases"
+    // after this:
+    // - raw==lo (down)  => norm127 becomes 127
+    // - raw==hi (up)    => norm127 becomes 0
+    // and later mapping v1..v2 will make down -> lower output (as requested)
+    norm127 = 127 - norm127;
 
     // output range val1..val2
     int v1 = 0, v2 = 127;
@@ -214,8 +294,8 @@ static uint8_t map_exp_value(const expfs_port_cfg_t *cfg, uint16_t raw)
     }
 
     int out;
-    if (v2 >= v1) out = v1 + (int)((int64_t)norm * (v2 - v1) / 127LL);
-    else          out = v1 - (int)((int64_t)norm * (v1 - v2) / 127LL);
+    if (v2 >= v1) out = v1 + (int)((int64_t)norm127 * (v2 - v1) / 127LL);
+    else          out = v1 - (int)((int64_t)norm127 * (v1 - v2) / 127LL);
 
     return clamp7(out);
 }
@@ -231,31 +311,64 @@ static void handle_exp_port(int port, const expfs_port_cfg_t *cfg)
     gpio_set_direction(HW[port].ring, GPIO_MODE_INPUT);
     gpio_set_pull_mode(HW[port].ring, GPIO_FLOATING);
 
-    int raw = 0;
-    if (adc_read_raw_port(port, &raw)) {
-        if (raw < 0) raw = 0;
-        if (raw > 4095) raw = 4095;
-        s_last_raw[port] = (uint16_t)raw;
+    int raw_i = 0;
+    if (adc_read_raw_port(port, &raw_i)) {
+        if (raw_i < 0) raw_i = 0;
+        if (raw_i > 4095) raw_i = 4095;
+        s_last_raw[port] = (uint16_t)raw_i;
     }
 
-    // map + send when changed
-    uint8_t mapped = map_exp_value(cfg, s_last_raw[port]);
+    // -------- median(3) + IIR filtering to reduce jitter --------
+    uint16_t raw_u = s_last_raw[port];
+
+    // prime history on first run
+    if (s_raw_hist[port][0] == 0 && s_raw_hist[port][1] == 0 && s_raw_hist[port][2] == 0) {
+        s_raw_hist[port][0] = raw_u;
+        s_raw_hist[port][1] = raw_u;
+        s_raw_hist[port][2] = raw_u;
+        s_raw_filt[port] = (int32_t)raw_u;
+    } else {
+        uint8_t idx = s_raw_hist_idx[port];
+        s_raw_hist[port][idx] = raw_u;
+        s_raw_hist_idx[port] = (uint8_t)((idx + 1) % 3);
+
+        uint16_t med = median3_u16(s_raw_hist[port][0], s_raw_hist[port][1], s_raw_hist[port][2]);
+        int32_t f = s_raw_filt[port];
+        f += ((int32_t)med - f) >> EXP_IIR_SHIFT;
+        if (f < 0) f = 0;
+        if (f > 4095) f = 4095;
+        s_raw_filt[port] = f;
+    }
+
+    uint16_t raw_f = (uint16_t)s_raw_filt[port];
+
+    // map (with curve) to output value
+    uint8_t mapped = map_exp_value(cfg, raw_f);
 
     uint32_t t = now_ms();
-    if (mapped != s_last_mapped[port]) {
-        // small throttle
-        if ((t - s_last_send_ms[port]) >= 25) {
-            s_last_send_ms[port] = t;
-            s_last_mapped[port] = mapped;
 
-            uint8_t ch = (uint8_t)clampi_local((int)cfg->exp_action.ch, 1, 16);
+    // stable window: ต้องนิ่งซักพักก่อนส่ง เพื่อตัดอาการแกว่ง +/-1
+    if (mapped != s_pending_mapped[port]) {
+        s_pending_mapped[port] = mapped;
+        s_pending_since_ms[port] = t;
+    }
 
-            if (cfg->exp_action.type == ACT_CC) {
-                uint8_t cc = clamp7(cfg->exp_action.a);
-                send_cc_all(ch, cc, mapped);
-            } else if (cfg->exp_action.type == ACT_PC) {
-                send_pc_all(ch, mapped);
-            }
+    int last_sent = (int)s_last_mapped[port];
+    int diff = (last_sent == 0xFF) ? 127 : iabs_local((int)mapped - last_sent);
+    bool stable_ok = (t - s_pending_since_ms[port]) >= EXP_SEND_STABLE_MS;
+    bool throttle_ok = (t - s_last_send_ms[port]) >= EXP_SEND_THROTTLE_MS;
+
+    if (mapped != s_last_mapped[port] && throttle_ok && (stable_ok || diff >= EXP_FORCE_DELTA || s_last_mapped[port] == 0xFF)) {
+        s_last_send_ms[port] = t;
+        s_last_mapped[port] = mapped;
+
+        uint8_t ch = (uint8_t)clampi_local((int)cfg->exp_action.ch, 1, 16);
+
+        if (cfg->exp_action.type == ACT_CC) {
+            uint8_t cc = clamp7(cfg->exp_action.a);
+            send_cc_all(ch, cc, mapped);
+        } else if (cfg->exp_action.type == ACT_PC) {
+            send_pc_all(ch, mapped);
         }
     }
 }

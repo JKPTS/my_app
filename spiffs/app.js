@@ -1126,48 +1126,89 @@ function buildExpEditor(port, cfg) {
     mkField("val2", v2Inp),
   );
 
-  const calRow = document.createElement("div");
+    const calRow = document.createElement("div");
   calRow.className = "calRow";
 
-  const btnUp = document.createElement("button");
-  btnUp.className = "btn2";
-  btnUp.type = "button";
-  btnUp.textContent = "cal up: start";
-  btnUp.dataset.state = "start";
+  const calBtn = document.createElement("button");
+  calBtn.className = "btn2";
+  calBtn.type = "button";
+  calBtn.textContent = "EXP Calibrate";
+  calBtn.dataset.step = "0";
 
-  const btnDown = document.createElement("button");
-  btnDown.className = "btn2";
-  btnDown.type = "button";
-  btnDown.textContent = "cal down: start";
-  btnDown.dataset.state = "start";
+  const calLabel = document.createElement("span");
+  calLabel.className = "calHint";
+  calLabel.textContent = "";
+  calLabel.style.display = "none";
 
   const vals = document.createElement("div");
   vals.className = "calVals";
   vals.textContent = `calMin=${cfg?.calMin ?? 0} · calMax=${cfg?.calMax ?? 4095}`;
 
-  async function doCal(btn, which) {
-    if (btn.dataset.state === "start") {
-      btn.dataset.state = "save";
-      btn.textContent = (which === "max") ? "cal up: save" : "cal down: save";
-      setMsg("move pedal then press save ✅");
+  function setCalStep(step) {
+    calBtn.dataset.step = String(step);
+    calBtn.classList.remove("calNext", "calSave");
+
+    if (step === 0) {
+      calBtn.textContent = "EXP Calibrate";
+      calLabel.style.display = "none";
+      calLabel.textContent = "";
       return;
     }
-    try {
-      await apiPostExpfsCal(port, which);
-      btn.dataset.state = "start";
-      btn.textContent = (which === "max") ? "cal up: start" : "cal down: start";
-      await loadExpfs(); // refresh values
-      setMsg("cal saved ✅");
-    } catch (e) {
-      setMsg("cal failed: " + e.message, false);
+
+    calLabel.style.display = "";
+    if (step === 1) {
+      calBtn.textContent = "Next ↑";
+      calBtn.classList.add("calNext");
+      calLabel.textContent = "↑ ยก exp ขึ้นสุด แล้วกด next";
+    } else {
+      calBtn.textContent = "Save ↓";
+      calBtn.classList.add("calSave");
+      calLabel.textContent = "↓ เหยียบ exp ลงสุด แล้วกด save";
     }
   }
 
-  btnUp.onclick = () => doCal(btnUp, "max");
-  btnDown.onclick = () => doCal(btnDown, "min");
+  async function refreshCalValsFromServer() {
+    try {
+      const fresh = await apiGetExpfs(port);
+      EXPFS[port] = fresh;
+      vals.textContent = `calMin=${fresh?.calMin ?? 0} · calMax=${fresh?.calMax ?? 4095}`;
+    } catch (_) {}
+  }
 
-  calRow.append(btnUp, btnDown, vals);
+  calBtn.onclick = async () => {
+    const step = Number(calBtn.dataset.step || "0");
 
+    if (step === 0) {
+      // start wizard (no network call)
+      setCalStep(1);
+      return;
+    }
+
+    if (step === 1) {
+      // save UP/MAX
+      try {
+        await apiPostExpfsCal(port, "max");
+        await refreshCalValsFromServer();
+        setMsg("cal up saved ✅");
+        setCalStep(2);
+      } catch (e) {
+        setMsg("cal failed: " + e.message, false);
+      }
+      return;
+    }
+
+    // step 2: save DOWN/MIN
+    try {
+      await apiPostExpfsCal(port, "min");
+      await refreshCalValsFromServer();
+      setMsg("cal down saved ✅");
+      setCalStep(0);
+    } catch (e) {
+      setMsg("cal failed: " + e.message, false);
+    }
+  };
+
+  calRow.append(calBtn, calLabel, vals);
   box.append(row, calRow);
 
   refresh();
@@ -1453,7 +1494,8 @@ function setupUI() {
   must("addLeft").onclick = () => tryAddRow(must("shortList"));
   must("addRight").onclick = () => tryAddRow(must("longList"));
 
-  must("btnReload").onclick = async () => {
+  const _btnReload = $("btnReload");
+  if (_btnReload) _btnReload.onclick = async () => {
     try {
       await flushPendingSaves();
       await loadButton();
@@ -1494,6 +1536,7 @@ window.addEventListener("load", async () => {
     await loadMeta();
     await loadLayout();
     await loadLedBrightness();
+    await loadExpfs();
 
     setupUI();
     makeGrid();
