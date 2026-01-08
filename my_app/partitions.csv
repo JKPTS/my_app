@@ -1,7 +1,0 @@
-# ===== FILE: C:\esp\my_host_project\my_app\partitions.csv =====
-# Name,   Type, SubType, Offset,   Size,     Flags
-phy_init, data, phy,     0xF000,   4K,
-factory,  app,  factory, 0x10000,  3M,
-nvs,      data, nvs,     0x310000, 512K,
-storage,  data, spiffs,  0x390000, 0xC50000,
-coredump, data, coredump,0xFE0000, 0x20000,
