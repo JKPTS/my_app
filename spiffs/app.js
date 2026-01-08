@@ -28,6 +28,13 @@ let dirtyBtn = false;
 let dirtyLayout = false;
 let dirtyBank = false;
 
+// exp/fs (global)
+let EXPFS = [null, null];
+let expfsDirty = [false, false];
+let expfsVer = [0, 0];
+let expfsSaving = [false, false];
+let expfsSavePromise = [Promise.resolve(), Promise.resolve()];
+
 // ✅ non-blocking save controller (prevents UI lag)
 let btnVer = 0, btnSaving = false, btnSavePromise = Promise.resolve();
 let layoutVer = 0, layoutSaving = false, layoutSavePromise = Promise.resolve();
@@ -78,6 +85,19 @@ async function apiPost(url, obj) {
   return r.json();
 }
 
+
+async function apiGetExpfs(port) {
+  return apiGet(`/api/expfs?port=${port}`);
+}
+
+async function apiPostExpfs(port, obj) {
+  return apiPost(`/api/expfs?port=${port}`, obj);
+}
+
+async function apiPostExpfsCal(port, which) {
+  return apiPost(`/api/expfs_cal?port=${port}&which=${which}`, {});
+}
+
 function curBankObj() { return (LAYOUT.banks || [])[cur.bank]; }
 
 // ---------- "finish typing then save" helpers ----------
@@ -111,7 +131,7 @@ function hookFinishedTypingInput(inp, onDirty, onFinish) {
 async function flushPendingSaves() {
   forceCommitActiveField();
 
-  await Promise.all([layoutSavePromise, bankSavePromise, btnSavePromise, ledSavePromise]);
+  await Promise.all([layoutSavePromise, bankSavePromise, btnSavePromise, ledSavePromise, expfsSavePromise[0], expfsSavePromise[1]]);
 
   if (dirtyLayout) await saveLayoutImmediate();
   if (dirtyBank) await saveBankImmediate();
@@ -119,6 +139,9 @@ async function flushPendingSaves() {
 
   if (tSaveLed) { clearTimeout(tSaveLed); tSaveLed = null; }
   if (dirtyLed) await saveLedImmediate();
+
+  if (expfsDirty[0]) await saveExpfsPortImmediate(0);
+  if (expfsDirty[1]) await saveExpfsPortImmediate(1);
 }
 
 // ---------- render ----------
@@ -634,6 +657,50 @@ function requestSaveLedAfterFinish() {
   }, 250);
 }
 
+// ---------- exp/fs autosave ----------
+function markExpfsDirty(port) {
+  if (LOADING) return;
+  port = clampInt(port, 0, 1);
+  expfsDirty[port] = true;
+  expfsVer[port] += 1;
+  setMsg("editing… ✍️");
+}
+
+function requestSaveExpfsAfterFinish(port) {
+  if (LOADING) return;
+  port = clampInt(port, 0, 1);
+  if (!expfsDirty[port]) return;
+  if (expfsSaving[port]) return;
+
+  expfsSaving[port] = true;
+  expfsSavePromise[port] = (async () => {
+    while (true) {
+      const v = expfsVer[port];
+      try {
+        await saveExpfsPort(port);
+        if (expfsVer[port] === v) {
+          expfsDirty[port] = false;
+          setMsg("saved ✅");
+          break;
+        }
+      } catch (e) {
+        setMsg("save failed: " + e.message, false);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expfsSaving[port] = false;
+  })();
+}
+
+async function saveExpfsPortImmediate(port) {
+  port = clampInt(port, 0, 1);
+  await saveExpfsPort(port);
+  expfsDirty[port] = false;
+  setMsg("saved ✅");
+}
+
+
 async function saveLedImmediate() {
   if (LOADING) return;
   dirtyLed = true;
@@ -850,6 +917,450 @@ async function pollLive() {
   setTimeout(pollLive, 450);
 }
 
+
+// ---------- exp/fs UI ----------
+function mkSelect(opts, value) {
+  const s = document.createElement("select");
+  (opts || []).forEach(([v, t]) => {
+    const o = document.createElement("option");
+    o.value = String(v);
+    o.textContent = t;
+    s.appendChild(o);
+  });
+  if (value != null) s.value = String(value);
+  return s;
+}
+
+function mkNumberInput(v, min, max, step=1) {
+  const i = document.createElement("input");
+  i.type = "number";
+  i.min = String(min);
+  i.max = String(max);
+  i.step = String(step);
+  i.value = String(v ?? "");
+  return i;
+}
+
+function fsEditorUpdateMode(paneRight, addLeft, addRight, leftTitle, rightTitle, pm) {
+  if (pm === 0) {
+    paneRight.style.display = "none";
+    addRight.style.display = "none";
+    leftTitle.textContent = "commands";
+    addLeft.textContent = `+ add (max ${maxActions()})`;
+  } else if (pm === 1) {
+    paneRight.style.display = "";
+    addRight.style.display = "";
+    leftTitle.textContent = "short";
+    rightTitle.textContent = `long (${META.longMs || 400}ms)`;
+    addLeft.textContent = `+ add short (max ${maxActions()})`;
+    addRight.textContent = `+ add long (max ${maxActions()})`;
+  } else {
+    paneRight.style.display = "";
+    addRight.style.display = "";
+    leftTitle.textContent = "a";
+    rightTitle.textContent = "b";
+    addLeft.textContent = `+ add a (max ${maxActions()})`;
+    addRight.textContent = `+ add b (max ${maxActions()})`;
+  }
+}
+
+function tryAddRowExp(listEl, port) {
+  if (listCount(listEl) >= maxActions()) {
+    setMsg(`max actions reached (${maxActions()})`, false);
+    return;
+  }
+  const row = mkActionRow(
+    { type: "cc", ch: 1, a: 0, b: 127, c: 0 },
+    (r) => r.remove(),
+    () => markExpfsDirty(port),
+    () => requestSaveExpfsAfterFinish(port),
+    () => saveExpfsPortImmediate(port)
+  );
+  listEl.appendChild(row);
+  saveExpfsPortImmediate(port).catch((e) => setMsg("save failed: " + e.message, false));
+}
+
+function buildFsEditor(port, side /*"tip"|"ring"*/, cfg) {
+  const wrap = document.createElement("div");
+  wrap.className = "pane";
+  wrap.style.border = "1px solid var(--line)";
+  wrap.style.borderRadius = "14px";
+  wrap.style.padding = "12px";
+  wrap.style.background = "rgba(255,255,255,.02)";
+
+  const head = document.createElement("div");
+  head.className = "paneHead";
+  head.style.marginBottom = "10px";
+  head.style.display = "flex";
+  head.style.alignItems = "center";
+  head.style.justifyContent = "space-between";
+  head.style.gap = "12px";
+
+  const title = document.createElement("div");
+  title.className = "paneTitle";
+  title.textContent = side;
+
+  const pmSel = mkSelect(
+    [["0","short"],["1","short + long"],["2","a + b"]],
+    cfg?.pressMode ?? 0
+  );
+
+  pmSel.onchange = async () => {
+    try {
+      fsEditorUpdateMode(paneRight, addLeft, addRight, leftTitle, rightTitle, Number(pmSel.value||"0"));
+      markExpfsDirty(port);
+      await saveExpfsPortImmediate(port);
+    } catch (e) { setMsg("save failed: " + e.message, false); }
+  };
+
+  head.appendChild(title);
+  head.appendChild(mkField("press mode", pmSel));
+  wrap.appendChild(head);
+
+  const cmdGrid = document.createElement("div");
+  cmdGrid.className = "cmdGrid";
+
+  const paneLeft = document.createElement("div");
+  paneLeft.className = "pane";
+  paneLeft.style.border = "none";
+  paneLeft.style.padding = "0";
+  paneLeft.style.background = "transparent";
+
+  const paneRight = document.createElement("div");
+  paneRight.className = "pane";
+  paneRight.style.border = "none";
+  paneRight.style.padding = "0";
+  paneRight.style.background = "transparent";
+
+  const headL = document.createElement("div");
+  headL.className = "paneHead";
+  const leftTitle = document.createElement("div");
+  leftTitle.className = "paneTitle";
+  const addLeft = document.createElement("button");
+  addLeft.className = "btn2";
+  addLeft.type = "button";
+  addLeft.onclick = () => tryAddRowExp(shortList, port);
+
+  headL.append(leftTitle, addLeft);
+
+  const headR = document.createElement("div");
+  headR.className = "paneHead";
+  const rightTitle = document.createElement("div");
+  rightTitle.className = "paneTitle";
+  const addRight = document.createElement("button");
+  addRight.className = "btn2";
+  addRight.type = "button";
+  addRight.onclick = () => tryAddRowExp(longList, port);
+
+  headR.append(rightTitle, addRight);
+
+  const shortList = document.createElement("div");
+  shortList.className = "list";
+  const longList = document.createElement("div");
+  longList.className = "list";
+
+  renderActions(
+    shortList,
+    (cfg?.short || []),
+    () => markExpfsDirty(port),
+    () => requestSaveExpfsAfterFinish(port),
+    () => saveExpfsPortImmediate(port)
+  );
+  renderActions(
+    longList,
+    (cfg?.long || []),
+    () => markExpfsDirty(port),
+    () => requestSaveExpfsAfterFinish(port),
+    () => saveExpfsPortImmediate(port)
+  );
+
+  paneLeft.append(headL, shortList);
+  paneRight.append(headR, longList);
+
+  cmdGrid.append(paneLeft, paneRight);
+  wrap.appendChild(cmdGrid);
+
+  // init titles/visibility
+  fsEditorUpdateMode(paneRight, addLeft, addRight, leftTitle, rightTitle, Number(pmSel.value||"0"));
+
+  // expose getters
+  wrap._get = () => {
+    const pm = Number(pmSel.value||"0");
+    const shortArr = collectActions(shortList);
+    const longArr = (pm === 0) ? [] : collectActions(longList);
+    return { pressMode: pm, ccBehavior: 0, short: shortArr, long: longArr };
+  };
+
+  return wrap;
+}
+
+function buildExpEditor(port, cfg) {
+  const box = document.createElement("div");
+
+  const row = document.createElement("div");
+  row.className = "expRow";
+
+  const typeSel = mkSelect([["cc","cc"],["pc","pc"]], (cfg?.exp?.cmd?.[0]?.type || "cc"));
+
+  const chInp = mkNumberInput(cfg?.exp?.cmd?.[0]?.ch ?? 1, 1, 16, 1);
+
+  const ccInp = mkNumberInput(cfg?.exp?.cmd?.[0]?.a ?? 0, 0, 127, 1);
+  const v1Inp = mkNumberInput((cfg?.exp?.cmd?.[0]?.type==="cc") ? (cfg?.exp?.cmd?.[0]?.b ?? 0) : (cfg?.exp?.cmd?.[0]?.a ?? 0), 0, 127, 1);
+  const v2Inp = mkNumberInput((cfg?.exp?.cmd?.[0]?.type==="cc") ? (cfg?.exp?.cmd?.[0]?.c ?? 127) : (cfg?.exp?.cmd?.[0]?.b ?? 127), 0, 127, 1);
+
+  function refresh() {
+    const t = typeSel.value;
+    ccInp.parentElement.style.display = (t === "cc") ? "" : "none";
+  }
+
+  [typeSel, chInp, ccInp, v1Inp, v2Inp].forEach((el) => {
+    el.addEventListener("change", () => { markExpfsDirty(port); requestSaveExpfsAfterFinish(port); });
+    el.addEventListener("input", () => markExpfsDirty(port));
+  });
+
+  row.append(
+    mkField("type", typeSel),
+    mkField("ch", chInp),
+    mkField("cc#", ccInp),
+    mkField("val1", v1Inp),
+    mkField("val2", v2Inp),
+  );
+
+  const calRow = document.createElement("div");
+  calRow.className = "calRow";
+
+  const btnUp = document.createElement("button");
+  btnUp.className = "btn2";
+  btnUp.type = "button";
+  btnUp.textContent = "cal up: start";
+  btnUp.dataset.state = "start";
+
+  const btnDown = document.createElement("button");
+  btnDown.className = "btn2";
+  btnDown.type = "button";
+  btnDown.textContent = "cal down: start";
+  btnDown.dataset.state = "start";
+
+  const vals = document.createElement("div");
+  vals.className = "calVals";
+  vals.textContent = `calMin=${cfg?.calMin ?? 0} · calMax=${cfg?.calMax ?? 4095}`;
+
+  async function doCal(btn, which) {
+    if (btn.dataset.state === "start") {
+      btn.dataset.state = "save";
+      btn.textContent = (which === "max") ? "cal up: save" : "cal down: save";
+      setMsg("move pedal then press save ✅");
+      return;
+    }
+    try {
+      await apiPostExpfsCal(port, which);
+      btn.dataset.state = "start";
+      btn.textContent = (which === "max") ? "cal up: start" : "cal down: start";
+      await loadExpfs(); // refresh values
+      setMsg("cal saved ✅");
+    } catch (e) {
+      setMsg("cal failed: " + e.message, false);
+    }
+  }
+
+  btnUp.onclick = () => doCal(btnUp, "max");
+  btnDown.onclick = () => doCal(btnDown, "min");
+
+  calRow.append(btnUp, btnDown, vals);
+
+  box.append(row, calRow);
+
+  refresh();
+
+  box._get = () => {
+    const t = typeSel.value;
+    const ch = clampInt(chInp.value, 1, 16);
+    const val1 = clampInt(v1Inp.value, 0, 127);
+    const val2 = clampInt(v2Inp.value, 0, 127);
+
+    let cmd;
+    if (t === "cc") {
+      const cc = clampInt(ccInp.value, 0, 127);
+      cmd = { type: "cc", ch, a: cc, b: val1, c: val2 };
+    } else {
+      cmd = { type: "pc", ch, a: val1, b: val2, c: 0 };
+    }
+    return {
+      kind: "exp",
+      calMin: clampInt(EXPFS?.[port]?.calMin ?? (cfg?.calMin ?? 0), 0, 4095),
+      calMax: clampInt(EXPFS?.[port]?.calMax ?? (cfg?.calMax ?? 4095), 0, 4095),
+      exp: { cmd: [cmd] },
+      tip: { pressMode: 0, ccBehavior: 0, short: [], long: [] },
+      ring: { pressMode: 0, ccBehavior: 0, short: [], long: [] },
+    };
+  };
+
+  box._setCalVals = (cmin, cmax) => {
+    vals.textContent = `calMin=${cmin} · calMax=${cmax}`;
+  };
+
+  return box;
+}
+
+function buildExpfsPortUI(port, cfg) {
+  const box = document.createElement("div");
+  box.className = "expPort";
+
+  const head = document.createElement("div");
+  head.className = "expPortHead";
+
+  const title = document.createElement("div");
+  title.className = "expPortTitle";
+  title.textContent = `port ${port + 1}`;
+
+  const kindSel = mkSelect([["single","single fs"],["dual","dual fs"],["exp","exp"]], cfg?.kind || "single");
+
+  head.append(title, mkField("mode", kindSel));
+  box.appendChild(head);
+
+  const body = document.createElement("div");
+  box.appendChild(body);
+
+  let expEd = null;
+  let fsTip = null;
+  let fsRing = null;
+
+  function renderBody() {
+    body.innerHTML = "";
+    const k = kindSel.value;
+
+    if (k === "exp") {
+      expEd = buildExpEditor(port, cfg);
+      body.appendChild(expEd);
+    } else {
+      expEd = null;
+      const tipCfg = cfg?.tip || { pressMode: 0, short: [], long: [] };
+      const ringCfg = cfg?.ring || { pressMode: 0, short: [], long: [] };
+
+      const tipWrap = document.createElement("div");
+      tipWrap.style.display = "grid";
+      tipWrap.style.gap = "10px";
+      const tipTitle = document.createElement("div");
+      tipTitle.className = "hint";
+      tipTitle.textContent = "tip";
+      tipWrap.appendChild(tipTitle);
+
+      fsTip = buildFsEditor(port, "tip", tipCfg);
+      tipWrap.appendChild(fsTip);
+
+      body.appendChild(tipWrap);
+
+      if (k === "dual") {
+        const ringWrap = document.createElement("div");
+        ringWrap.style.display = "grid";
+        ringWrap.style.gap = "10px";
+        ringWrap.style.marginTop = "12px";
+
+        const ringTitle = document.createElement("div");
+        ringTitle.className = "hint";
+        ringTitle.textContent = "ring";
+        ringWrap.appendChild(ringTitle);
+
+        fsRing = buildFsEditor(port, "ring", ringCfg);
+        ringWrap.appendChild(fsRing);
+
+        body.appendChild(ringWrap);
+      } else {
+        fsRing = null;
+      }
+    }
+  }
+
+  kindSel.onchange = async () => {
+    try {
+      cfg.kind = kindSel.value;
+      renderBody();
+      markExpfsDirty(port);
+      await saveExpfsPortImmediate(port);
+    } catch (e) { setMsg("save failed: " + e.message, false); }
+  };
+
+  renderBody();
+
+  box._get = () => {
+    const k = kindSel.value;
+
+    if (k === "exp") {
+      const v = expEd?._get();
+      // keep current cal values from last load (server truth)
+      v.calMin = EXPFS?.[port]?.calMin ?? v.calMin;
+      v.calMax = EXPFS?.[port]?.calMax ?? v.calMax;
+      return v;
+    }
+
+    const tip = fsTip?._get() || { pressMode: 0, ccBehavior: 0, short: [], long: [] };
+    const ring = fsRing?._get() || { pressMode: 0, ccBehavior: 0, short: [], long: [] };
+
+    return {
+      kind: k,
+      calMin: EXPFS?.[port]?.calMin ?? (cfg?.calMin ?? 0),
+      calMax: EXPFS?.[port]?.calMax ?? (cfg?.calMax ?? 4095),
+      exp: { cmd: [] },
+      tip,
+      ring,
+    };
+  };
+
+  box._setCalVals = (cmin, cmax) => {
+    if (expEd && expEd._setCalVals) expEd._setCalVals(cmin, cmax);
+  };
+
+  return box;
+}
+
+function readExpfsPortFromUI(port) {
+  const w = must("expfsWrap");
+  const portEl = w.querySelector(`.expPort[data-port="${port}"]`);
+  if (!portEl || !portEl._get) return EXPFS[port] || null;
+  return portEl._get();
+}
+
+async function loadExpfs() {
+  const ports = clampInt(META.expfsPorts ?? 2, 1, 2);
+  for (let p = 0; p < ports; p++) {
+    EXPFS[p] = await apiGetExpfs(p);
+  }
+  renderExpfsUI();
+}
+
+function renderExpfsUI() {
+  const wrap = must("expfsWrap");
+  wrap.innerHTML = "";
+
+  const ports = clampInt(META.expfsPorts ?? 2, 1, 2);
+
+  for (let p = 0; p < ports; p++) {
+    const cfg = EXPFS[p] || { kind: "single", calMin: 0, calMax: 4095, exp: { cmd: [] }, tip: {}, ring: {} };
+    const portUI = buildExpfsPortUI(p, cfg);
+    portUI.dataset.port = String(p);
+
+    // keep cal values visible
+    portUI._setCalVals(cfg.calMin ?? 0, cfg.calMax ?? 4095);
+
+    wrap.appendChild(portUI);
+  }
+}
+
+async function saveExpfsPort(port) {
+  const payload = readExpfsPortFromUI(port);
+  if (!payload) return;
+
+  // ensure required structure
+  if (!payload.exp) payload.exp = { cmd: [] };
+  if (!Array.isArray(payload.exp.cmd)) payload.exp.cmd = [];
+
+  // persist
+  await apiPostExpfs(port, payload);
+
+  // update local snapshot
+  EXPFS[port] = payload;
+}
+
 // ---------- UI wiring ----------
 function setupUI() {
   must("bankMinus").onclick = async () => { await gotoBank(cur.bank - 1); };
@@ -951,6 +1462,21 @@ function setupUI() {
       setMsg("reload failed: " + e.message, false);
     }
   };
+
+
+  // exp/fs reload
+  const expBtn = $("btnExpfsReload");
+  if (expBtn) {
+    expBtn.onclick = async () => {
+      try {
+        await flushPendingSaves();
+        await loadExpfs();
+        setMsg("reloaded ✅");
+      } catch (e) {
+        setMsg("reload failed: " + e.message, false);
+      }
+    };
+  }
 
   must("pressMode").onchange = async () => {
     try {

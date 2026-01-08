@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
-#include "driver/adc.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 
 #include "config_store.h"
@@ -129,7 +129,7 @@ static void adc_init_once(void)
         if (!h) { s_adc_map[p].valid = 0; continue; }
 
         adc_oneshot_chan_cfg_t ccfg = {
-            .atten = ADC_ATTEN_DB_11,
+            .atten = ADC_ATTEN_DB_12,
             .bitwidth = ADC_BITWIDTH_DEFAULT,
         };
         (void)adc_oneshot_config_channel(h, s_adc_map[p].chan, &ccfg);

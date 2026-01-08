@@ -21,6 +21,7 @@
 #include "dns_hijack.h"
 #include "config_store.h"
 #include "footswitch.h"
+#include "expfs.h"
 
 static const char *TAG = "PORTAL";
 static httpd_handle_t s_http = NULL;
@@ -121,8 +122,8 @@ static esp_err_t h_get_meta(httpd_req_t *req)
     char out[220];
     int bc = config_store_bank_count();
     snprintf(out, sizeof(out),
-             "{\"maxBanks\":%d,\"buttons\":%d,\"bankCount\":%d,\"maxActions\":%d,\"longMs\":%d}",
-             MAX_BANKS, NUM_BTNS, bc, MAX_ACTIONS, 400);
+             "{\"maxBanks\":%d,\"buttons\":%d,\"bankCount\":%d,\"maxActions\":%d,\"longMs\":%d,\"expfsPorts\":%d}",
+             MAX_BANKS, NUM_BTNS, bc, MAX_ACTIONS, 400, EXPFS_PORT_COUNT);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, out);
     return ESP_OK;
@@ -180,6 +181,137 @@ static esp_err_t h_post_led(httpd_req_t *req)
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+
+// -------- API: EXPFS (global exp/fs ports) --------
+static int parse_q_int(httpd_req_t *req, const char *key, int defv)
+{
+    char q[96];
+    char tmp[24];
+    int v = defv;
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        if (httpd_query_key_value(q, key, tmp, sizeof(tmp)) == ESP_OK) v = atoi(tmp);
+    }
+    return v;
+}
+
+static esp_err_t h_get_expfs(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    int port = parse_q_int(req, "port", 0);
+    port = clampi_local(port, 0, EXPFS_PORT_COUNT - 1);
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    memset(s_buf, 0, BUF_MAX + 1);
+    esp_err_t e = config_store_get_expfs_json(port, s_buf, BUF_MAX);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "expfs read failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_buf);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_expfs(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    int port = parse_q_int(req, "port", 0);
+    port = clampi_local(port, 0, EXPFS_PORT_COUNT - 1);
+
+    int total = req->content_len;
+    if (total <= 0 || total > BUF_MAX) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, s_buf + got, total - got);
+        if (r <= 0) {
+            if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    s_buf[total] = 0;
+
+    esp_err_t e = config_store_set_expfs_json(port, s_buf);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "expfs save failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+static esp_err_t h_post_expfs_cal(httpd_req_t *req)
+{
+    // drain body if any (client may POST {})
+    int remain = req->content_len;
+    if (remain > 0) {
+        char dump[64];
+        while (remain > 0) {
+            int n = (remain > (int)sizeof(dump)) ? (int)sizeof(dump) : remain;
+            int r = httpd_req_recv(req, dump, n);
+            if (r <= 0) break;
+            remain -= r;
+        }
+    }
+
+    int port = parse_q_int(req, "port", 0);
+    port = clampi_local(port, 0, EXPFS_PORT_COUNT - 1);
+
+    char q[96];
+    char tmp[24];
+    int which = -1; // 0=min, 1=max
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        if (httpd_query_key_value(q, "which", tmp, sizeof(tmp)) == ESP_OK) {
+            if (strcmp(tmp, "min") == 0 || strcmp(tmp, "0") == 0) which = 0;
+            if (strcmp(tmp, "max") == 0 || strcmp(tmp, "1") == 0) which = 1;
+        }
+    }
+
+    if (which < 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing which=min|max");
+        return ESP_FAIL;
+    }
+
+    esp_err_t e = expfs_cal_save(port, which);
+    const expfs_port_cfg_t *cfg = config_store_get_expfs_cfg(port);
+    uint16_t raw = expfs_get_last_raw(port);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "cal save failed");
+        return ESP_FAIL;
+    }
+
+    char out[160];
+    snprintf(out, sizeof(out),
+             "{\"ok\":true,\"raw\":%u,\"calMin\":%u,\"calMax\":%u}",
+             (unsigned)raw, (unsigned)cfg->cal_min, (unsigned)cfg->cal_max);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, out);
     return ESP_OK;
 }
 
@@ -491,7 +623,7 @@ static void start_http_server(void)
     }
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 24;
+    cfg.max_uri_handlers = 32;
     cfg.max_open_sockets = 2;
     cfg.stack_size = 4096;
     cfg.lru_purge_enable = true;
@@ -528,6 +660,10 @@ static void start_http_server(void)
     httpd_uri_t u_led_g = { .uri="/api/led", .method=HTTP_GET,  .handler=h_get_led };
     httpd_uri_t u_led_p = { .uri="/api/led", .method=HTTP_POST, .handler=h_post_led };
 
+    httpd_uri_t u_expfs_g = { .uri="/api/expfs", .method=HTTP_GET,  .handler=h_get_expfs };
+    httpd_uri_t u_expfs_p = { .uri="/api/expfs", .method=HTTP_POST, .handler=h_post_expfs };
+    httpd_uri_t u_expfs_cal = { .uri="/api/expfs_cal", .method=HTTP_POST, .handler=h_post_expfs_cal };
+
     reg_uri(s_http, &u_root,  "root");
     reg_uri(s_http, &u_js,    "js");
     reg_uri(s_http, &u_css,   "css");
@@ -552,6 +688,10 @@ static void start_http_server(void)
 
     reg_uri(s_http, &u_led_g, "led_get");
     reg_uri(s_http, &u_led_p, "led_post");
+
+    reg_uri(s_http, &u_expfs_g, "expfs_get");
+    reg_uri(s_http, &u_expfs_p, "expfs_post");
+    reg_uri(s_http, &u_expfs_cal, "expfs_cal");
 
     ESP_LOGI(TAG, "HTTP server started");
 }

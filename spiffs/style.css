@@ -307,6 +307,7 @@ input:focus, select:focus{
 
   /* commands เต็มแถว */
   .grid > .card:nth-child(3){ grid-column: 1 / -1; }
+  .grid > .card:nth-child(4){ grid-column: 1 / -1; }
 
   /* ฟอร์ม: bankName + switchName แถวเดียว, brightness ลงมาเต็มแถว */
   .form3{ grid-template-columns: 1fr 1fr; }
@@ -315,3 +316,15 @@ input:focus, select:focus{
   .cmdGrid{ grid-template-columns: 1fr 1fr; }
   .padGrid{ grid-template-columns: repeat(4, minmax(0,1fr)); }
 }
+
+
+/* expfs */
+.expfsWrap{ display:grid; gap:12px; }
+.expPort{ border:1px solid var(--line); border-radius:14px; padding:12px; background: rgba(255,255,255,.02); }
+.expPortHead{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.expPortTitle{ font-weight:700; text-transform:lowercase; }
+.expRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px; }
+.expRow .fieldWrap{ min-width:120px; }
+.calRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+.calVals{ color:var(--muted); font-size:12px; }
+

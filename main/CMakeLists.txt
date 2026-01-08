@@ -18,7 +18,7 @@ idf_component_register(
         esp_netif
         esp_http_server
         spiffs
-        driver
+        driver esp_adc
         lwip
         json
         usb

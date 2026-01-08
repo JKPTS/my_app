@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "my_app",
-    "project_version":    "1",
+    "project_version":    "92b2101-dirty",
     "project_path":       "C:/esp/my_host_project/my_app",
     "idf_path":           "C:/Espressif/frameworks/esp-idf-v5.5.2",
     "build_dir":          "C:/esp/my_host_project/my_app/build",
@@ -1221,11 +1221,11 @@
             "type": "LIBRARY",
             "lib": "__idf_main",
             "reqs": [],
-            "priv_reqs": [ "nvs_flash", "esp_wifi", "esp_event", "esp_netif", "esp_http_server", "spiffs", "driver", "lwip", "json", "usb", "esp_timer" ],
+            "priv_reqs": [ "nvs_flash", "esp_wifi", "esp_event", "esp_netif", "esp_http_server", "spiffs", "driver", "esp_adc", "lwip", "json", "usb", "esp_timer" ],
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "C:/esp/my_host_project/my_app/build/esp-idf/main/libmain.a",
-            "sources": [ "C:/esp/my_host_project/my_app/main/app_main.c", "C:/esp/my_host_project/my_app/main/portal_wifi.c", "C:/esp/my_host_project/my_app/main/dns_hijack.c", "C:/esp/my_host_project/my_app/main/config_store.c", "C:/esp/my_host_project/my_app/main/footswitch.c", "C:/esp/my_host_project/my_app/main/midi_actions.c", "C:/esp/my_host_project/my_app/main/usb_midi_host.c", "C:/esp/my_host_project/my_app/main/uart_midi_out.c" ],
+            "sources": [ "C:/esp/my_host_project/my_app/main/app_main.c", "C:/esp/my_host_project/my_app/main/portal_wifi.c", "C:/esp/my_host_project/my_app/main/dns_hijack.c", "C:/esp/my_host_project/my_app/main/config_store.c", "C:/esp/my_host_project/my_app/main/footswitch.c", "C:/esp/my_host_project/my_app/main/midi_actions.c", "C:/esp/my_host_project/my_app/main/usb_midi_host.c", "C:/esp/my_host_project/my_app/main/uart_midi_out.c", "C:/esp/my_host_project/my_app/main/expfs.c" ],
             "include_dirs": [ "." ]
         },
         "mbedtls": {
@@ -2923,7 +2923,7 @@
             "dir": "C:/esp/my_host_project/my_app/main",
             "lib": "__idf_main",
             "reqs": [],
-            "priv_reqs": [ "nvs_flash", "esp_wifi", "esp_event", "esp_netif", "esp_http_server", "spiffs", "driver", "lwip", "json", "usb", "esp_timer" ],
+            "priv_reqs": [ "nvs_flash", "esp_wifi", "esp_event", "esp_netif", "esp_http_server", "spiffs", "driver", "esp_adc", "lwip", "json", "usb", "esp_timer" ],
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "include_dirs": [ "." ]
