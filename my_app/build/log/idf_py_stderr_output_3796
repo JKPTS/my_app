@@ -1,0 +1,57 @@
+Command: C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py -p COM5 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --decode-coredumps info --target esp32s3 --revision 0 C:\esp\my_host_project\my_app\build\my_app.elf C:\esp\my_host_project\my_app\build\bootloader\bootloader.elf --force-color -m 'C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe' 'C:\Espressif\frameworks\esp-idf-v5.5.2\tools\idf.py'
+[0;33m--- Warning: GDB cannot open serial ports accessed as COMx[0m
+[0;33m--- Using \\.\COM5 instead...[0m
+[0;33m--- esp-idf-monitor 1.8.0 on \\.\COM5 115200[0m
+[0;33m--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x42004a98: [0;33mheap_caps_add_region_with_caps[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/heap/heap_caps_init.c[0m[0m:[1;31m315[0m
+[0m--- 0x42004a9f: [0;33mxPortEnterCriticalTimeoutSafe[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h[0m[0m:[1;31m578[0m
+[0m--- (inlined by) [0;33mvPortEnterCriticalSafe[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h[0m[0m:[1;31m588[0m
+[0m--- (inlined by) [0;33mheap_caps_add_region_with_caps[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/heap/heap_caps_init.c[0m[0m:[1;31m321[0m
+[0m--- 0x40382b54: [0;33mxPortInIsrContext[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m446[0m
+[0m--- 0x40056f5c: [0;33mmemcpy[0m[0m in [0;32mROM[0m
+[0m--- 0x40056f72: [0;33mmemcpy[0m[0m in [0;32mROM[0m
+[0m--- 0x42004a9c: [0;33mxPortEnterCriticalTimeoutSafe[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h[0m[0m:[1;31m578[0m
+[0m--- (inlined by) [0;33mvPortEnterCriticalSafe[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h[0m[0m:[1;31m588[0m
+[0m--- (inlined by) [0;33mheap_caps_add_region_with_caps[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/heap/heap_caps_init.c[0m[0m:[1;31m321[0m
+[0m--- 0x4200bce3: [0;33mesp_psram_extram_add_to_heap_allocator[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_psram/system_layer/esp_psram.c[0m[0m:[1;31m451[0m
+[0m--- 0x4200bdf4: [0;33m__esp_system_init_fn_add_psram_to_heap[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_psram/system_layer/esp_psram.c[0m[0m:[1;31m123[0m
+[0m--- 0x42003ece: [0;33mdo_system_init_fn[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/startup.c[0m[0m:[1;31m132[0m
+[0m--- 0x42003f19: [0;33mdo_core_init[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/startup.c[0m[0m:[1;31m170[0m
+[0m--- 0x42003f83: [0;33mstart_cpu0_default[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/startup.c[0m[0m:[1;31m204[0m
+[0m--- 0x40375ae1: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/port/cpu_start.c[0m[0m:[1;31m949[0m
+[0m--- 0x403ccac4: [0;33mset_cache_and_start_app[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader_support/src/bootloader_utility.c[0m[0m:[1;31m1156[0m
+[0m--- (inlined by) [0;33munpack_load_app[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader_support/src/bootloader_utility.c[0m[0m:[1;31m891[0m
+[0m--- (inlined by) [0;33mload_image[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader_support/src/bootloader_utility.c[0m[0m:[1;31m801[0m
+[0m--- 0x403ccf09: [0;33mbootloader_utility_load_boot_image[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader_support/src/bootloader_utility.c[0m[0m:[1;31m603[0m
+[0m--- 0x403c898d: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m62[0m
+[0m--- 0x40045c01: [0;33mets_run_flash_bootloader[0m[0m in [0;32mROM[0m
+[0m--- 0x40043ab6: [0;33mmain[0m[0m in [0;32mROM[0m
+[0m--- 0x40034c45: [0;33m.stack_ok[0m[0m in [0;32mROM[0m
+[0;33m--- Initiating core dump![0m
+[0;33m--- Core dump started (further output muted)[0m
+[0;33m
+--- Core dump finished![0m
+[1;31m--- Error: Failed to parse core dump info: Incorrect padding
+
+[0m
+[0;33m--- To exit from IDF monitor please use "Ctrl+]". Alternatively, you can use Ctrl+T Ctrl+X to exit.[0m
+[0m
+Traceback (most recent call last):
+  File "C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py", line 11, in <module>
+    sys.exit(subprocess.run([sys.executable, '-m', 'esp_idf_monitor'] + sys.argv[1:]).returncode)
+             ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 556, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1214, in communicate
+    self.wait()
+    ~~~~~~~~~^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1280, in wait
+    return self._wait(timeout=timeout)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1606, in _wait
+    result = _winapi.WaitForSingleObject(self._handle,
+                                         timeout_millis)
+KeyboardInterrupt

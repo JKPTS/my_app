@@ -1,0 +1,104 @@
+Command: C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py -p COM5 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --decode-coredumps info --target esp32s3 --revision 0 C:\esp\my_host_project\my_app\build\my_app.elf C:\esp\my_host_project\my_app\build\bootloader\bootloader.elf --force-color -m 'C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe' 'C:\Espressif\frameworks\esp-idf-v5.5.2\tools\idf.py'
+ES�ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (29) boot: ESP-IDF v5.5.2 2nd stage bootloader[0m
+[0;32mI (30) boot: compile time Jan  4 2026 20:09:30[0m
+[0;32mI (30) boot: Multicore bootloader[0m
+[0;32mI (30) boot: chip revision: v0.2[0m
+[0;32mI (33) boot: efuse block revision: v1.3[0m
+[0;32mI (36) boot.esp32s3: Boot SPI Speed : 40MHz[0m
+[0;32mI (40) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (44) boot.esp32s3: SPI Flash Size : 16MB[0m
+[0;32mI (48) boot: Enabling RNG early entropy source...[0m
+[0;32mI (52) boot: Partition Table:[0m
+[0;32mI (55) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (61) boot:  0 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (68) boot:  1 factory          factory app      00 00 00010000 00300000[0m
+[0;32mI (74) boot:  2 nvs              WiFi data        01 02 00310000 00080000[0m
+[0;32mI (81) boot:  3 storage          Unknown data     01 82 00390000 00c50000[0m
+[0;32mI (87) boot:  4 coredump         Unknown data     01 03 00fe0000 00020000[0m
+[0;32mI (94) boot: End of partition table[0m
+[0;32mI (97) esp_image: segment 0: paddr=00010020 vaddr=3c0b0020 size=20c94h (134292) map[0m
+[0;32mI (137) esp_image: segment 1: paddr=00030cbc vaddr=3fc9e500 size=06fb0h ( 28592) load[0m
+[0;32mI (145) esp_image: segment 2: paddr=00037c74 vaddr=40374000 size=083a4h ( 33700) load[0m
+[0;32mI (155) esp_image: segment 3: paddr=00040020 vaddr=42000020 size=a2abch (666300) map[0m
+[0;32mI (319) esp_image: segment 4: paddr=000e2ae4 vaddr=4037c3a4 size=120ech ( 73964) load[0m
+[0;32mI (341) esp_image: segment 5: paddr=000f4bd8 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (352) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (352) boot: Disabling RNG early entropy source...[0m
+[0;32mI (362) octal_psram: vendor id    : 0x0d (AP)[0m
+[0;32mI (362) octal_psram: dev id       : 0x02 (generation 3)[0m
+[0;32mI (363) octal_psram: density      : 0x03 (64 Mbit)[0m
+[0;32mI (365) octal_psram: good-die     : 0x01 (Pass)[0m
+[0;32mI (369) octal_psram: Latency      : 0x01 (Fixed)[0m
+[0;32mI (373) octal_psram: VCC          : 0x01 (3V)[0m
+[0;32mI (377) octal_psram: SRF          : 0x01 (Fast Refresh)[0m
+[0;32mI (382) octal_psram: BurstType    : 0x01 (Hybrid Wrap)[0m
+[0;32mI (387) octal_psram: BurstLen     : 0x01 (32 Byte)[0m
+[0;32mI (392) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)[0m
+[0;32mI (397) octal_psram: DriveStrength: 0x00 (1/1)[0m
+[0;32mI (401) esp_psram: Found 8MB PSRAM device[0m
+[0;32mI (405) esp_psram: Speed: 40MHz[0m
+[0;32mI (408) cpu_start: Multicore app[0m
+[0;32mI (422) cpu_start: GPIO 44 and 43 are used as console UART I/O pins[0m
+[0;32mI (423) cpu_start: Pro cpu start user code[0m
+[0;32mI (423) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (424) app_init: Application information:[0m
+[0;32mI (428) app_init: Project name:     my_app[0m
+[0;32mI (432) app_init: App version:      1[0m
+[0;32mI (435) app_init: Compile time:     Jan  4 2026 20:03:45[0m
+[0;32mI (440) app_init: ELF file SHA256:  f53e7f6a7...[0m
+[0;32mI (445) app_init: ESP-IDF:          v5.5.2[0m
+[0;32mI (448) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (452) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (456) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (460) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (467) heap_init: At 3FCA9FA8 len 0003F768 (253 KiB): RAM[0m
+[0;32mI (472) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (477) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (482) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+Guru Meditation Error: Core  0 panic'ed (IllegalInstruction). Exception was unhandled.
+Memory dump at 0x42004a98: 0008e0ee e0ee3281 ffffffff
+Core  0 register dump:
+PC      : 0x42004a9f  PS      : 0x00060930  A0      : 0x8200bce6  A1      : 0x3fceb230  
+A2      : 0x00000000  A3      : 0x3c0e0000  A4      : 0x3c8e0000  A5      : 0x3fca0078  
+A6      : 0x3fcaa410  A7      : 0x3fcaa3fc  A8      : 0x40382b54  A9      : 0x3fceb210  
+A10     : 0x3c0e0000  A11     : 0x3fcaa410  A12     : 0x0000000c  A13     : 0x3fcaa408  
+A14     : 0x00100006  A15     : 0x3c0e0000  SAR     : 0x00000001  EXCCAUSE: 0x00000000  
+EXCVADDR: 0x00000000  LBEG    : 0x40056f5c  LEND    : 0x40056f72  LCOUNT  : 0xffffffff  
+
+
+Backtrace: 0x42004a9c:0x3fceb230 0x4200bce3:0x3fceb250 0x4200bdf4:0x3fceb290 0x42003ece:0x3fceb2b0 0x42003f19:0x3fceb2d0 0x42003f83:0x3fceb2f0 0x40375ae1:0x3fceb310 0x403ccac4:0x3fceb340 0x403ccf09:0x3fceb380 0x403c898d:0x3fceb4b0 0x40045c01:0x3fceb570 0x40043ab6:0x3fceb6f0 0x40034c45:0x3fceb710
+
+
+
+
+ELF file SHA256: f53e7f6a7
+
+[0;32mI (617) esp_core_dump_uart: Print core dump to uart...[0m
+[0;32mI (622) esp_core_dump_common: Backing up stack @ 0x3fceb090 and use core dump stack @ 0x3fca6370[0m
+[0;32mI (631) esp_core_dump_uart: Press Enter to print core dump to UART...[0m
+[1;31mE (637) esp_core_dump_elf: esp_core_dump_do_write_elf_pass(784): ELF Size writing error, returned (0).[0m
+================= CORE DUMP START =================
+HAAAAAIBCQAAAAAAAAAAAAAAAAACAAAA
+f0VMRgEBAQAAAAAAAAAAAAQAXgABAAAAAAAAADQAAAAAAAAAAAAAADQAIAABACgA
+AAAAAA==
+BAAAAFQAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAA=
+E (664) esp_core_dump_elf: esp_core_dump_do_write_elf_pass(784): ELF Size writing error, returned (0).
+E (673) esp_core_dump_elf: elf_process_tasks_regs(458): PR_STATUS note segment processing failure, returned(0).
+E (683) esp_core_dump_elf: elf_write_tasks_data(558): Tasks regs addition failed, return (0).
+E (691) esp_core_dump_elf: esp_core_dump_do_write_elf_pass(784): ELF Size writing error, returned (0).
+dup+uQ==
+================= CORE DUMP END =================
+Coredump checksum='b97eea76'
+[0;32mI (708) esp_core_dump_common: Core dump used 784 bytes on stack. 1096 bytes left free.[0m
+[0;32mI (716) esp_core_dump_common: Restoring stack @ 0x3fceb090[0m
+[0;32mI (721) esp_core_dump_uart: Core dump has been written to uart.[0m
+CPU halted.

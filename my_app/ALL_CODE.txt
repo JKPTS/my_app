@@ -1,0 +1,4743 @@
+﻿
+
+===== FILE: CMakeLists.txt =====
+
+cmake_minimum_required(VERSION 3.16)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(my_app)
+
+# Build SPIFFS image from ./spiffs into partition "storage"
+spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
+
+
+===== FILE: main\app_main.c =====
+
+// ===== FILE: main/app_main.c =====
+#include "esp_log.h"
+#include "esp_err.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "portal_wifi.h"
+#include "config_store.h"
+#include "footswitch.h"
+#include "usb_midi_host.h"
+#include "uart_midi_out.h"
+
+#include "nvs_flash.h"
+
+static const char *TAG = "APP";
+
+static void bootstrap_task(void *arg)
+{
+    (void)arg;
+
+    ESP_LOGI(TAG, "bootstrap start (reset_reason=%d)", (int)esp_reset_reason());
+
+    // 1) nvs init (ไม่ให้รีบูต)
+    esp_err_t err = nvs_flash_init();
+
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "nvs needs erase (err=%s)", esp_err_to_name(err));
+        esp_err_t e2 = nvs_flash_erase();
+        if (e2 != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_flash_erase failed: %s", esp_err_to_name(e2));
+        }
+        err = nvs_flash_init();
+    }
+
+    if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "nvs already initialized");
+        err = ESP_OK;
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs init failed: %s (continue without persistence)", esp_err_to_name(err));
+    }
+
+    // 2) config
+    ESP_LOGI(TAG, "config_store_init()");
+    config_store_init();
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // 3) usb midi host
+    ESP_LOGI(TAG, "usb_midi_host_init()");
+    usb_midi_host_init();
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // 3.1) uart midi out
+    ESP_LOGI(TAG, "uart_midi_out_init()");
+    uart_midi_out_init();
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    // 4) captive portal
+    ESP_LOGI(TAG, "portal_wifi_start()");
+    portal_wifi_start();
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // 5) footswitch
+    ESP_LOGI(TAG, "footswitch_start()");
+    footswitch_start();
+
+    ESP_LOGI(TAG, "system ready ✅");
+
+    vTaskDelete(NULL);
+}
+
+void app_main(void)
+{
+    ESP_LOGI(TAG, "app_main enter");
+
+    // แยก init ไป task เพื่อกันค้าง/กัน watchdog ช่วง boot
+    xTaskCreatePinnedToCore(bootstrap_task, "bootstrap", 6144, NULL, 8, NULL, 0);
+
+    // ปล่อยให้ task อื่นทำงาน
+    vTaskDelete(NULL);
+}
+
+
+===== FILE: main\CMakeLists.txt =====
+
+# ===== FILE: C:\esp\my_host_project\my_app\main\CMakeLists.txt =====
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "portal_wifi.c"
+        "dns_hijack.c"
+        "config_store.c"
+        "footswitch.c"
+        "midi_actions.c"
+        "usb_midi_host.c"
+        "uart_midi_out.c"
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_server
+        spiffs
+        driver
+        lwip
+        json
+        usb
+        esp_timer
+)
+
+
+===== FILE: main\config_store.c =====
+
+// ===== FILE: main/config_store.c =====
+#include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>  // snprintf
+
+#include "esp_log.h"
+#include "esp_err.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+#include "cJSON.h"
+#include "esp_heap_caps.h"
+
+#include "config_store.h"
+
+static const char *TAG = "CFG";
+
+/**
+ * ✅ DRAM overflow guard:
+ * - ใช้ heap allocate (PSRAM ก่อน) แทน static ใหญ่ ๆ ใน .bss
+ */
+static foot_config_t *s_cfg = NULL;
+
+// ✅ สถานะ NVS (กัน abort/รีบูต)
+static bool s_nvs_ok = false;
+
+// ---- led brightness stored separately ----
+static uint8_t s_led_brightness = 100; // 0..100
+
+// ---- a+b led selection stored separately ----
+// 0=A, 1=B
+static uint8_t s_ab_led_sel[MAX_BANKS][NUM_BTNS];
+
+// ---- current bank persisted ----
+static uint8_t s_cur_bank = 0;
+
+#define CFG_MAGIC 0x46435346u  // 'FSCF'
+#define CFG_VER   4            // v4 = no pages
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t ver;
+    uint16_t reserved;
+    uint32_t size;
+} cfg_hdr_v4_t;
+
+// ---------- legacy structures (v3 had pages) ----------
+#define LEGACY_V3_MAX_BANKS 20
+#define LEGACY_V3_MAX_PAGES 4
+#define LEGACY_V3_NUM_BTNS  8
+
+typedef struct {
+    action_type_t type;
+    uint8_t ch;
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+} legacy_action_t;
+
+typedef struct {
+    btn_press_mode_t press_mode;
+    cc_behavior_t cc_behavior;
+    legacy_action_t short_actions[MAX_ACTIONS];
+    legacy_action_t long_actions[MAX_ACTIONS];
+} legacy_btn_map_t;
+
+typedef struct {
+    uint8_t bank_count;
+    uint8_t page_count[LEGACY_V3_MAX_BANKS];
+    char    bank_name[LEGACY_V3_MAX_BANKS][NAME_LEN];
+    char    page_name[LEGACY_V3_MAX_BANKS][LEGACY_V3_MAX_PAGES][NAME_LEN];
+    char    switch_name[LEGACY_V3_MAX_BANKS][LEGACY_V3_MAX_PAGES][LEGACY_V3_NUM_BTNS][NAME_LEN];
+    legacy_btn_map_t map[LEGACY_V3_MAX_BANKS][LEGACY_V3_MAX_PAGES][LEGACY_V3_NUM_BTNS];
+} legacy_foot_config_v3_t;
+
+static inline int clampi(int v, int lo, int hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static inline int wrapi(int v, int max)
+{
+    if (max <= 0) return 0;
+    int r = v % max;
+    if (r < 0) r += max;
+    return r;
+}
+
+static void set_default_action(action_t *a)
+{
+    if (!a) return;
+    a->type = ACT_NONE;
+    a->ch   = 1;
+    a->a    = 0;
+    a->b    = 0;
+    a->c    = 0;
+}
+
+static void safe_set_name(char dst[NAME_LEN], const char *src, const char *fallback)
+{
+    const char *s = (src && src[0]) ? src : fallback;
+    if (!s) s = "";
+    strncpy(dst, s, NAME_LEN - 1);
+    dst[NAME_LEN - 1] = 0;
+}
+
+// ---- led brightness NVS helpers ----
+static esp_err_t nvs_load_led_brightness(uint8_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READONLY, &h);
+    if (e != ESP_OK) return e;
+
+    uint8_t v = 0;
+    e = nvs_get_u8(h, "led_bri", &v);
+    nvs_close(h);
+
+    if (e != ESP_OK) return e;
+
+    if (v > 100) v = 100;
+    *out = v;
+    return ESP_OK;
+}
+
+static esp_err_t nvs_save_led_brightness(uint8_t v)
+{
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+    if (v > 100) v = 100;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+
+    e = nvs_set_u8(h, "led_bri", v);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+
+    if (e != ESP_OK) ESP_LOGE(TAG, "nvs_save_led_brightness failed: %s", esp_err_to_name(e));
+    return e;
+}
+
+// ---- current bank NVS helpers ----
+static esp_err_t nvs_load_cur_bank(uint8_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READONLY, &h);
+    if (e != ESP_OK) return e;
+
+    uint8_t v = 0;
+    e = nvs_get_u8(h, "cur_bank", &v);
+    nvs_close(h);
+    if (e != ESP_OK) return e;
+
+    *out = v;
+    return ESP_OK;
+}
+
+static esp_err_t nvs_save_cur_bank(uint8_t bank)
+{
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+
+    e = nvs_set_u8(h, "cur_bank", bank);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+
+    if (e != ESP_OK) ESP_LOGE(TAG, "nvs_save_cur_bank failed: %s", esp_err_to_name(e));
+    return e;
+}
+
+// ---- a+b led select NVS helpers (blob) ----
+static void ab_led_defaults(void)
+{
+    // default = 1 (B) to match old behavior (A=off, B=on)
+    memset(s_ab_led_sel, 1, sizeof(s_ab_led_sel));
+}
+
+static void ab_led_sanitize(void)
+{
+    for (int b = 0; b < MAX_BANKS; b++) {
+        for (int k = 0; k < NUM_BTNS; k++) {
+            s_ab_led_sel[b][k] = (s_ab_led_sel[b][k] ? 1u : 0u);
+        }
+    }
+}
+
+static esp_err_t nvs_load_ab_led_sel(void)
+{
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READONLY, &h);
+    if (e != ESP_OK) return e;
+
+    size_t len = 0;
+    e = nvs_get_blob(h, "ab_led", NULL, &len);
+    if (e != ESP_OK) {
+        nvs_close(h);
+        return e;
+    }
+
+    // new size
+    if (len == sizeof(s_ab_led_sel)) {
+        e = nvs_get_blob(h, "ab_led", s_ab_led_sel, &len);
+        nvs_close(h);
+        if (e == ESP_OK) ab_led_sanitize();
+        return e;
+    }
+
+    // legacy size (20*4*8)
+    const size_t legacy_len = (size_t)LEGACY_V3_MAX_BANKS * (size_t)LEGACY_V3_MAX_PAGES * (size_t)LEGACY_V3_NUM_BTNS;
+    if (len == legacy_len) {
+        uint8_t *tmp = (uint8_t *)malloc(len);
+        if (!tmp) { nvs_close(h); return ESP_ERR_NO_MEM; }
+
+        e = nvs_get_blob(h, "ab_led", tmp, &len);
+        nvs_close(h);
+        if (e != ESP_OK) { free(tmp); return e; }
+
+        // migrate: take page0 only
+        ab_led_defaults();
+        for (int b = 0; b < LEGACY_V3_MAX_BANKS; b++) {
+            for (int k = 0; k < LEGACY_V3_NUM_BTNS; k++) {
+                size_t idx = (size_t)((b * LEGACY_V3_MAX_PAGES + 0) * LEGACY_V3_NUM_BTNS + k);
+                s_ab_led_sel[b][k] = (tmp[idx] ? 1u : 0u);
+            }
+        }
+        free(tmp);
+        ab_led_sanitize();
+        return ESP_OK;
+    }
+
+    nvs_close(h);
+    return ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t nvs_save_ab_led_sel(void)
+{
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+
+    e = nvs_set_blob(h, "ab_led", s_ab_led_sel, sizeof(s_ab_led_sel));
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+
+    if (e != ESP_OK) ESP_LOGE(TAG, "nvs_save_ab_led_sel failed: %s", esp_err_to_name(e));
+    return e;
+}
+
+static void sanitize_cfg(foot_config_t *cfg)
+{
+    if (!cfg) return;
+
+    for (int b = 0; b < MAX_BANKS; b++) {
+        for (int k = 0; k < NUM_BTNS; k++) {
+            btn_map_t *m = &cfg->map[b][k];
+
+            for (int i = 0; i < MAX_ACTIONS; i++) {
+                action_t *sa = &m->short_actions[i];
+                action_t *la = &m->long_actions[i];
+
+                if (sa->type != ACT_CC && sa->type != ACT_PC) set_default_action(sa);
+                if (la->type != ACT_CC && la->type != ACT_PC) set_default_action(la);
+
+                sa->ch = (uint8_t)clampi((int)sa->ch, 1, 16);
+                la->ch = (uint8_t)clampi((int)la->ch, 1, 16);
+                sa->a  = (uint8_t)clampi((int)sa->a, 0, 127);
+                sa->b  = (uint8_t)clampi((int)sa->b, 0, 127);
+                sa->c  = 0;
+                la->a  = (uint8_t)clampi((int)la->a, 0, 127);
+                la->b  = (uint8_t)clampi((int)la->b, 0, 127);
+                la->c  = 0;
+            }
+
+            int pm = (int)m->press_mode;
+            if (pm == 4) pm = 0; // migrate old tap tempo -> short
+            m->press_mode  = (btn_press_mode_t)clampi(pm, 0, 3);
+            m->cc_behavior = (cc_behavior_t)clampi((int)m->cc_behavior, 0, 2);
+
+            cfg->switch_name[b][k][NAME_LEN - 1] = 0;
+        }
+        cfg->bank_name[b][NAME_LEN - 1] = 0;
+    }
+
+    cfg->bank_count = (uint8_t)clampi((int)cfg->bank_count, 1, MAX_BANKS);
+}
+
+static void set_defaults(foot_config_t *cfg)
+{
+    if (!cfg) return;
+
+    memset(cfg, 0, sizeof(*cfg));
+
+    cfg->bank_count = 1;
+
+    for (int b = 0; b < MAX_BANKS; b++) {
+        char bn[NAME_LEN];
+        snprintf(bn, sizeof(bn), "Bank %d", b + 1);
+        safe_set_name(cfg->bank_name[b], bn, "Bank");
+
+        for (int k = 0; k < NUM_BTNS; k++) {
+            char sn[NAME_LEN];
+            snprintf(sn, sizeof(sn), "SW %d", k + 1);
+            safe_set_name(cfg->switch_name[b][k], sn, "SW");
+
+            btn_map_t *m = &cfg->map[b][k];
+            m->press_mode  = BTN_SHORT;
+            m->cc_behavior = CC_NORMAL;
+
+            for (int i = 0; i < MAX_ACTIONS; i++) {
+                set_default_action(&m->short_actions[i]);
+                set_default_action(&m->long_actions[i]);
+            }
+        }
+    }
+
+    ab_led_defaults();
+    s_cur_bank = 0;
+}
+
+// ---------- NVS load/save (v4) ----------
+static esp_err_t nvs_load_v4(foot_config_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READONLY, &h);
+    if (e != ESP_OK) return e;
+
+    size_t hlen = sizeof(cfg_hdr_v4_t);
+    cfg_hdr_v4_t hdr;
+    e = nvs_get_blob(h, "cfg_hdr", &hdr, &hlen);
+    if (e != ESP_OK || hlen != sizeof(cfg_hdr_v4_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    if (hdr.magic != CFG_MAGIC || hdr.ver != CFG_VER || hdr.size != sizeof(foot_config_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    size_t dlen = 0;
+    e = nvs_get_blob(h, "cfg_data", NULL, &dlen);
+    if (e != ESP_OK || dlen != sizeof(foot_config_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    e = nvs_get_blob(h, "cfg_data", out, &dlen);
+    nvs_close(h);
+    return e;
+}
+
+static void migrate_v3_to_v4(const legacy_foot_config_v3_t *old, foot_config_t *out)
+{
+    set_defaults(out);
+
+    int old_bc = clampi((int)old->bank_count, 1, LEGACY_V3_MAX_BANKS);
+    out->bank_count = (uint8_t)clampi(old_bc, 1, MAX_BANKS);
+
+    for (int b = 0; b < old_bc; b++) {
+        safe_set_name(out->bank_name[b], old->bank_name[b], out->bank_name[b]);
+
+        for (int k = 0; k < NUM_BTNS; k++) {
+            // take page0 only
+            safe_set_name(out->switch_name[b][k], old->switch_name[b][0][k], out->switch_name[b][k]);
+
+            const legacy_btn_map_t *om = &old->map[b][0][k];
+            btn_map_t *nm = &out->map[b][k];
+
+            nm->press_mode  = (btn_press_mode_t)clampi((int)om->press_mode, 0, 3);
+            nm->cc_behavior = (cc_behavior_t)clampi((int)om->cc_behavior, 0, 2);
+
+            for (int i = 0; i < MAX_ACTIONS; i++) {
+                // short
+                const legacy_action_t *osa = &om->short_actions[i];
+                action_t *nsa = &nm->short_actions[i];
+                nsa->type = osa->type;
+                nsa->ch = osa->ch;
+                nsa->a = osa->a;
+                nsa->b = osa->b;
+                nsa->c = 0;
+
+                // long
+                const legacy_action_t *ola = &om->long_actions[i];
+                action_t *nla = &nm->long_actions[i];
+                nla->type = ola->type;
+                nla->ch = ola->ch;
+                nla->a = ola->a;
+                nla->b = ola->b;
+                nla->c = 0;
+            }
+        }
+    }
+}
+
+static esp_err_t nvs_load_migrate_v3_to_v4(foot_config_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READONLY, &h);
+    if (e != ESP_OK) return e;
+
+    size_t hlen = sizeof(cfg_hdr_v4_t);
+    cfg_hdr_v4_t hdr;
+    e = nvs_get_blob(h, "cfg_hdr", &hdr, &hlen);
+    if (e != ESP_OK || hlen != sizeof(cfg_hdr_v4_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    // detect legacy v3 layout (same hdr struct style, but different size)
+    if (hdr.magic != CFG_MAGIC || hdr.ver != 3 || hdr.size != (uint32_t)sizeof(legacy_foot_config_v3_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    size_t dlen = 0;
+    e = nvs_get_blob(h, "cfg_data", NULL, &dlen);
+    if (e != ESP_OK || dlen != sizeof(legacy_foot_config_v3_t)) {
+        nvs_close(h);
+        return ESP_FAIL;
+    }
+
+    legacy_foot_config_v3_t *tmp = (legacy_foot_config_v3_t *)malloc(sizeof(*tmp));
+    if (!tmp) { nvs_close(h); return ESP_ERR_NO_MEM; }
+
+    e = nvs_get_blob(h, "cfg_data", tmp, &dlen);
+    nvs_close(h);
+    if (e != ESP_OK) { free(tmp); return e; }
+
+    migrate_v3_to_v4(tmp, out);
+    free(tmp);
+    return ESP_OK;
+}
+
+static esp_err_t nvs_save_v4(const foot_config_t *in)
+{
+    if (!in) return ESP_ERR_INVALID_ARG;
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+
+    cfg_hdr_v4_t hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic = CFG_MAGIC;
+    hdr.ver   = CFG_VER;
+    hdr.size  = (uint32_t)sizeof(foot_config_t);
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+
+    e = nvs_set_blob(h, "cfg_hdr", &hdr, sizeof(hdr));
+    if (e == ESP_OK) e = nvs_set_blob(h, "cfg_data", in, sizeof(*in));
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+
+    if (e != ESP_OK) ESP_LOGE(TAG, "nvs_save_v4 failed: %s", esp_err_to_name(e));
+    return e;
+}
+
+const foot_config_t *config_store_get(void)
+{
+    return s_cfg;
+}
+
+void config_store_init(void)
+{
+    // ✅ allocate config first (prefer PSRAM)
+    if (!s_cfg) {
+        s_cfg = (foot_config_t *)heap_caps_malloc(sizeof(foot_config_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_cfg) {
+            s_cfg = (foot_config_t *)heap_caps_malloc(sizeof(foot_config_t), MALLOC_CAP_8BIT);
+        }
+
+        if (!s_cfg) {
+            ESP_LOGE(TAG, "No heap for config_store (%u bytes). System will run without config.",
+                     (unsigned)sizeof(foot_config_t));
+            s_led_brightness = 100;
+            ab_led_defaults();
+            s_cur_bank = 0;
+            return;
+        }
+    }
+
+    // ✅ NVS init แบบไม่ทำให้รีบูต
+    esp_err_t e = nvs_flash_init();
+    if (e == ESP_ERR_INVALID_STATE) {
+        s_nvs_ok = true;
+        e = ESP_OK;
+    } else if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS needs erase (e=%s)", esp_err_to_name(e));
+        esp_err_t e2 = nvs_flash_erase();
+        if (e2 != ESP_OK) {
+            ESP_LOGE(TAG, "nvs_flash_erase failed: %s", esp_err_to_name(e2));
+        }
+        e = nvs_flash_init();
+        s_nvs_ok = (e == ESP_OK);
+    } else {
+        s_nvs_ok = (e == ESP_OK);
+    }
+
+    if (!s_nvs_ok) {
+        ESP_LOGE(TAG, "NVS not available: %s (run with defaults, no persistence)", esp_err_to_name(e));
+    }
+
+    // defaults
+    set_defaults(s_cfg);
+
+    if (s_nvs_ok) {
+        // v4 first
+        e = nvs_load_v4(s_cfg);
+        if (e == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded config v4 from NVS");
+        } else {
+            // migrate v3 -> v4 (page0)
+            e = nvs_load_migrate_v3_to_v4(s_cfg);
+            if (e == ESP_OK) {
+                ESP_LOGW(TAG, "Migrated legacy v3 -> v4 (page removed, keep page0)");
+                (void)nvs_save_v4(s_cfg);
+            } else {
+                ESP_LOGW(TAG, "No saved config (v4/v3), using defaults");
+                (void)nvs_save_v4(s_cfg);
+            }
+        }
+
+        sanitize_cfg(s_cfg);
+        (void)nvs_save_v4(s_cfg);
+
+        // led brightness
+        uint8_t bri = 100;
+        e = nvs_load_led_brightness(&bri);
+        if (e == ESP_OK) {
+            s_led_brightness = bri;
+            ESP_LOGI(TAG, "Loaded led brightness=%u", (unsigned)s_led_brightness);
+        } else {
+            s_led_brightness = 100;
+            (void)nvs_save_led_brightness(s_led_brightness);
+            ESP_LOGW(TAG, "No led brightness saved, default=100");
+        }
+
+        // ab led sel
+        ab_led_defaults();
+        e = nvs_load_ab_led_sel();
+        if (e == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded ab led sel (blob)");
+        } else {
+            ab_led_defaults();
+            (void)nvs_save_ab_led_sel();
+            ESP_LOGW(TAG, "No ab led sel saved, default=B");
+        }
+
+        // current bank
+        uint8_t cb = 0;
+        e = nvs_load_cur_bank(&cb);
+        if (e == ESP_OK) {
+            int bc = config_store_bank_count();
+            s_cur_bank = (uint8_t)wrapi((int)cb, bc);
+            ESP_LOGI(TAG, "Loaded cur_bank=%u", (unsigned)s_cur_bank);
+        } else {
+            s_cur_bank = 0;
+            (void)nvs_save_cur_bank(s_cur_bank);
+            ESP_LOGW(TAG, "No cur_bank saved, default=0");
+        }
+    } else {
+        s_led_brightness = 100;
+        ab_led_defaults();
+        s_cur_bank = 0;
+        sanitize_cfg(s_cfg);
+    }
+}
+
+// ---- helpers ----
+int config_store_bank_count(void)
+{
+    if (!s_cfg) return 1;
+    return (int)clampi((int)s_cfg->bank_count, 1, MAX_BANKS);
+}
+
+const char *config_store_bank_name(int bank)
+{
+    if (!s_cfg) return "Bank";
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    return s_cfg->bank_name[bank];
+}
+
+// ---- layout json (banks only) ----
+esp_err_t config_store_get_layout_json(char *out, int out_len)
+{
+    if (!out || out_len <= 0) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "maxBanks", MAX_BANKS);
+
+    int bc = config_store_bank_count();
+    cJSON_AddNumberToObject(root, "bankCount", bc);
+
+    cJSON *banks = cJSON_CreateArray();
+    cJSON_AddItemToObject(root, "banks", banks);
+
+    for (int b = 0; b < bc; b++) {
+        cJSON *bo = cJSON_CreateObject();
+        cJSON_AddNumberToObject(bo, "index", b);
+        cJSON_AddStringToObject(bo, "name", s_cfg->bank_name[b]);
+        cJSON_AddItemToArray(banks, bo);
+    }
+
+    char *s = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!s) return ESP_FAIL;
+
+    int need = (int)strlen(s);
+    if (need >= out_len) {
+        free(s);
+        return ESP_FAIL;
+    }
+
+    strcpy(out, s);
+    free(s);
+    return ESP_OK;
+}
+
+esp_err_t config_store_set_layout_json(const char *json)
+{
+    if (!json) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return ESP_FAIL;
+
+    cJSON *jbc = cJSON_GetObjectItem(root, "bankCount");
+    cJSON *jbanks = cJSON_GetObjectItem(root, "banks");
+    if (!cJSON_IsNumber(jbc) || !cJSON_IsArray(jbanks)) {
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
+
+    int bc = clampi(jbc->valueint, 1, MAX_BANKS);
+
+    uint8_t new_bank_count = (uint8_t)bc;
+    char new_bank_name[MAX_BANKS][NAME_LEN];
+    memcpy(new_bank_name, s_cfg->bank_name, sizeof(new_bank_name));
+
+    for (int b = 0; b < bc; b++) {
+        cJSON *bo = cJSON_GetArrayItem(jbanks, b);
+        if (!cJSON_IsObject(bo)) { cJSON_Delete(root); return ESP_FAIL; }
+
+        cJSON *bn = cJSON_GetObjectItem(bo, "name");
+        if (cJSON_IsString(bn)) safe_set_name(new_bank_name[b], bn->valuestring, new_bank_name[b]);
+        else safe_set_name(new_bank_name[b], NULL, new_bank_name[b]);
+
+        new_bank_name[b][NAME_LEN - 1] = 0;
+    }
+
+    cJSON_Delete(root);
+
+    s_cfg->bank_count = new_bank_count;
+    memcpy(s_cfg->bank_name, new_bank_name, sizeof(new_bank_name));
+
+    sanitize_cfg(s_cfg);
+
+    // clamp current bank if bankCount reduced
+    int cur = (int)s_cur_bank;
+    int bc2 = config_store_bank_count();
+    s_cur_bank = (uint8_t)wrapi(cur, bc2);
+    if (s_nvs_ok) (void)nvs_save_cur_bank(s_cur_bank);
+
+    return nvs_save_v4(s_cfg);
+}
+
+// ---- bank json (switch names) ----
+esp_err_t config_store_get_bank_json(int bank, char *out, int out_len)
+{
+    if (!out || out_len <= 0) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+    cJSON_AddItemToObject(root, "switchNames", arr);
+
+    for (int k = 0; k < NUM_BTNS; k++) {
+        cJSON_AddItemToArray(arr, cJSON_CreateString(s_cfg->switch_name[bank][k]));
+    }
+
+    char *s = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!s) return ESP_FAIL;
+
+    int need = (int)strlen(s);
+    if (need >= out_len) {
+        free(s);
+        return ESP_FAIL;
+    }
+
+    strcpy(out, s);
+    free(s);
+    return ESP_OK;
+}
+
+esp_err_t config_store_set_bank_json(int bank, const char *json)
+{
+    if (!json) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return ESP_FAIL;
+
+    cJSON *arr = cJSON_GetObjectItem(root, "switchNames");
+    if (!cJSON_IsArray(arr)) {
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
+
+    int n = cJSON_GetArraySize(arr);
+    if (n > NUM_BTNS) n = NUM_BTNS;
+
+    for (int k = 0; k < n; k++) {
+        cJSON *s = cJSON_GetArrayItem(arr, k);
+        if (cJSON_IsString(s)) {
+            safe_set_name(s_cfg->switch_name[bank][k], s->valuestring, s_cfg->switch_name[bank][k]);
+        }
+        s_cfg->switch_name[bank][k][NAME_LEN - 1] = 0;
+    }
+
+    cJSON_Delete(root);
+    sanitize_cfg(s_cfg);
+    return nvs_save_v4(s_cfg);
+}
+
+// ---------- JSON helpers (per-button) ----------
+static bool parse_action(cJSON *o, action_t *a)
+{
+    if (!cJSON_IsObject(o) || !a) return false;
+
+    const cJSON *type = cJSON_GetObjectItem(o, "type");
+    const cJSON *ch   = cJSON_GetObjectItem(o, "ch");
+    const cJSON *aa   = cJSON_GetObjectItem(o, "a");
+    const cJSON *bb   = cJSON_GetObjectItem(o, "b");
+
+    if (!cJSON_IsString(type) || !cJSON_IsNumber(ch) ||
+        !cJSON_IsNumber(aa)   || !cJSON_IsNumber(bb)) {
+        return false;
+    }
+
+    a->ch = (uint8_t)clampi((int)ch->valueint, 1, 16);
+
+    if (strcmp(type->valuestring, "cc") == 0) {
+        a->type = ACT_CC;
+        a->a = (uint8_t)clampi((int)aa->valueint, 0, 127);
+        a->b = (uint8_t)clampi((int)bb->valueint, 0, 127);
+        a->c = 0;
+        return true;
+    }
+
+    if (strcmp(type->valuestring, "pc") == 0) {
+        a->type = ACT_PC;
+        a->a = (uint8_t)clampi((int)aa->valueint, 0, 127);
+        a->b = 0;
+        a->c = 0;
+        return true;
+    }
+
+    return false;
+}
+
+static void action_to_json(cJSON *arr, const action_t *a)
+{
+    if (!arr || !a) return;
+    if (a->type == ACT_NONE) return;
+
+    const char *t = NULL;
+    if (a->type == ACT_CC) t = "cc";
+    if (a->type == ACT_PC) t = "pc";
+    if (!t) return;
+
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "type", t);
+    cJSON_AddNumberToObject(o, "ch", a->ch);
+    cJSON_AddNumberToObject(o, "a",  a->a);
+    cJSON_AddNumberToObject(o, "b",  a->b);
+    cJSON_AddNumberToObject(o, "c",  0);
+    cJSON_AddItemToArray(arr, o);
+}
+
+esp_err_t config_store_get_btn_json(int bank, int btn, char *out, int out_len)
+{
+    if (!out || out_len <= 0) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn,  NUM_BTNS);
+
+    const btn_map_t *m = &s_cfg->map[bank][btn];
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "pressMode",  (int)m->press_mode);
+    cJSON_AddNumberToObject(root, "ccBehavior", (int)m->cc_behavior);
+    cJSON_AddNumberToObject(root, "abLed", (int)(s_ab_led_sel[bank][btn] ? 1 : 0));
+
+    cJSON *sa = cJSON_CreateArray();
+    cJSON *la = cJSON_CreateArray();
+    cJSON_AddItemToObject(root, "short", sa);
+    cJSON_AddItemToObject(root, "long",  la);
+
+    for (int i = 0; i < MAX_ACTIONS; i++) action_to_json(sa, &m->short_actions[i]);
+    for (int i = 0; i < MAX_ACTIONS; i++) action_to_json(la, &m->long_actions[i]);
+
+    char *s = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!s) return ESP_FAIL;
+
+    int need = (int)strlen(s);
+    if (need >= out_len) {
+        free(s);
+        return ESP_FAIL;
+    }
+
+    strcpy(out, s);
+    free(s);
+    return ESP_OK;
+}
+
+esp_err_t config_store_set_btn_json(int bank, int btn, const char *json)
+{
+    if (!json) return ESP_ERR_INVALID_ARG;
+    if (!s_cfg) return ESP_FAIL;
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn,  NUM_BTNS);
+
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return ESP_FAIL;
+
+    cJSON *pm = cJSON_GetObjectItem(root, "pressMode");
+    cJSON *cb = cJSON_GetObjectItem(root, "ccBehavior");
+    cJSON *sa = cJSON_GetObjectItem(root, "short");
+    cJSON *la = cJSON_GetObjectItem(root, "long");
+    cJSON *ab = cJSON_GetObjectItem(root, "abLed");
+
+    if (!cJSON_IsNumber(pm) || !cJSON_IsNumber(cb) || !cJSON_IsArray(sa) || !cJSON_IsArray(la)) {
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
+
+    btn_map_t *m = &s_cfg->map[bank][btn];
+
+    int pressMode = clampi(pm->valueint, 0, 3);
+    int ccBeh     = clampi(cb->valueint, 0, 2);
+    m->press_mode  = (btn_press_mode_t)pressMode;
+    m->cc_behavior = (cc_behavior_t)ccBeh;
+
+    if (cJSON_IsNumber(ab)) {
+        int sel = clampi(ab->valueint, 0, 1);
+        s_ab_led_sel[bank][btn] = (uint8_t)sel;
+    } else {
+        s_ab_led_sel[bank][btn] = (s_ab_led_sel[bank][btn] ? 1u : 0u);
+    }
+
+    for (int i = 0; i < MAX_ACTIONS; i++) {
+        set_default_action(&m->short_actions[i]);
+        set_default_action(&m->long_actions[i]);
+    }
+
+    int ns = cJSON_GetArraySize(sa);
+    if (ns > MAX_ACTIONS) ns = MAX_ACTIONS;
+    for (int i = 0; i < ns; i++) {
+        if (!parse_action(cJSON_GetArrayItem(sa, i), &m->short_actions[i])) {
+            cJSON_Delete(root);
+            return ESP_FAIL;
+        }
+    }
+
+    int nl = cJSON_GetArraySize(la);
+    if (nl > MAX_ACTIONS) nl = MAX_ACTIONS;
+    for (int i = 0; i < nl; i++) {
+        if (!parse_action(cJSON_GetArrayItem(la, i), &m->long_actions[i])) {
+            cJSON_Delete(root);
+            return ESP_FAIL;
+        }
+    }
+
+    cJSON_Delete(root);
+    sanitize_cfg(s_cfg);
+
+    esp_err_t e = nvs_save_v4(s_cfg);
+    if (e != ESP_OK) return e;
+    (void)nvs_save_ab_led_sel();
+    return ESP_OK;
+}
+
+// ---- led brightness public API ----
+uint8_t config_store_get_led_brightness(void)
+{
+    return s_led_brightness;
+}
+
+esp_err_t config_store_set_led_brightness(uint8_t percent)
+{
+    if (percent > 100) percent = 100;
+    s_led_brightness = percent;
+    return nvs_save_led_brightness(s_led_brightness);
+}
+
+// ---- a+b led selection public API ----
+uint8_t config_store_get_ab_led_sel(int bank, int btn)
+{
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn, NUM_BTNS);
+
+    return (s_ab_led_sel[bank][btn] ? 1u : 0u);
+}
+
+esp_err_t config_store_set_ab_led_sel(int bank, int btn, uint8_t sel)
+{
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn, NUM_BTNS);
+
+    sel = (sel ? 1u : 0u);
+    s_ab_led_sel[bank][btn] = sel;
+    return nvs_save_ab_led_sel();
+}
+
+// ---- current bank persistence public API ----
+uint8_t config_store_get_current_bank(void)
+{
+    int bc = config_store_bank_count();
+    return (uint8_t)wrapi((int)s_cur_bank, bc);
+}
+
+esp_err_t config_store_set_current_bank(uint8_t bank)
+{
+    int bc = config_store_bank_count();
+    s_cur_bank = (uint8_t)wrapi((int)bank, bc);
+    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
+    return nvs_save_cur_bank(s_cur_bank);
+}
+
+
+===== FILE: main\config_store.h =====
+
+// ===== FILE: main/config_store.h =====
+#pragma once
+#include "esp_err.h"
+#include <stdint.h>
+
+#define MAX_BANKS   100
+#define NUM_BTNS    8
+#define MAX_ACTIONS 20
+
+#define NAME_LEN    16   // รวม '\0'
+
+typedef enum {
+    ACT_NONE = 0,
+    ACT_CC,
+    ACT_PC,
+
+    // legacy types (จะถูก sanitize ให้เป็น NONE ตอน boot)
+    ACT_NOTE,
+    ACT_DELAY,
+    ACT_BANK_PC,
+} action_type_t;
+
+typedef enum {
+    BTN_SHORT           = 0,
+    BTN_SHORT_LONG      = 1,
+    BTN_TOGGLE          = 2,
+
+    // ✅ group
+    BTN_SHORT_GROUP_LED = 3,
+
+    // (removed) BTN_TAP_TEMPO = 4
+} btn_press_mode_t;
+
+typedef enum {
+    CC_NORMAL    = 0,
+    CC_TOGGLE    = 1,
+    CC_MOMENTARY = 2,
+} cc_behavior_t;
+
+typedef struct {
+    action_type_t type;
+    uint8_t ch;      // 1..16
+    uint8_t a;
+    uint8_t b;
+    uint8_t c;
+} action_t;
+
+typedef struct {
+    btn_press_mode_t press_mode;
+    cc_behavior_t cc_behavior;
+    action_t short_actions[MAX_ACTIONS];
+    action_t long_actions[MAX_ACTIONS];
+} btn_map_t;
+
+typedef struct {
+    // layout
+    uint8_t bank_count;                       // 1..MAX_BANKS
+    char    bank_name[MAX_BANKS][NAME_LEN];
+
+    // ✅ switch name ต่อ bank (8 ปุ่ม)
+    char    switch_name[MAX_BANKS][NUM_BTNS][NAME_LEN];
+
+    // mapping
+    btn_map_t map[MAX_BANKS][NUM_BTNS];
+} foot_config_t;
+
+// ---- init/load/save ----
+void config_store_init(void);
+const foot_config_t *config_store_get(void);
+
+// ---- layout helpers ----
+int  config_store_bank_count(void);
+const char *config_store_bank_name(int bank);
+
+// ---- layout json ----
+esp_err_t config_store_get_layout_json(char *out, int out_len);
+esp_err_t config_store_set_layout_json(const char *json);
+
+// ---- bank (switch names) json ----
+esp_err_t config_store_get_bank_json(int bank, char *out, int out_len);
+esp_err_t config_store_set_bank_json(int bank, const char *json);
+
+// ---- per-button json ----
+esp_err_t config_store_get_btn_json(int bank, int btn, char *out, int out_len);
+esp_err_t config_store_set_btn_json(int bank, int btn, const char *json);
+
+// ---- led brightness (global, 0..100) ----
+uint8_t  config_store_get_led_brightness(void);
+esp_err_t config_store_set_led_brightness(uint8_t percent);
+
+// ---- a+b led select (per bank/button): 0=A, 1=B ----
+uint8_t  config_store_get_ab_led_sel(int bank, int btn);
+esp_err_t config_store_set_ab_led_sel(int bank, int btn, uint8_t sel);
+
+// ---- current bank persistence ----
+uint8_t  config_store_get_current_bank(void);
+esp_err_t config_store_set_current_bank(uint8_t bank);
+
+
+===== FILE: main\dns_hijack.c =====
+
+#include <string.h>
+#include <arpa/inet.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "lwip/sockets.h"
+#include "esp_log.h"
+
+static const char *TAG = "DNS";
+
+static void dns_task(void *arg)
+{
+    (void)arg;
+
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) {
+        ESP_LOGE(TAG, "socket() failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(53);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        ESP_LOGE(TAG, "bind() failed");
+        close(s);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    uint8_t buf[512];
+
+    while (1) {
+        struct sockaddr_in from = {0};
+        socklen_t flen = sizeof(from);
+        int n = recvfrom(s, buf, sizeof(buf), 0, (struct sockaddr*)&from, &flen);
+        if (n < 12) continue;
+
+        // Minimal DNS response:
+        uint8_t out[512];
+
+        // เราจะ append อีก 16 bytes ตอนท้าย (A record answer)
+        const int append_len = 16;
+
+        // ✅ กัน overflow: ถ้าแพ็กเก็ตใหญ่เกินพื้นที่ที่เหลือ -> ทิ้ง
+        if (n > (int)sizeof(out) - append_len) {
+            // (optional) log เป็น debug ได้
+            // ESP_LOGW(TAG, "dns pkt too large: n=%d", n);
+            continue;
+        }
+
+        memcpy(out, buf, n);
+
+        // Header: set QR=1 response, RCODE=0, ANCOUNT=1
+        out[2] = 0x81;
+        out[3] = 0x80;
+        out[6] = 0x00; out[7] = 0x01;
+
+        // Answer:
+        // NAME pointer 0xC00C, TYPE=A, CLASS=IN, TTL=60, RDLEN=4, RDATA=192.168.4.1
+        int p = n;
+        out[p++] = 0xC0; out[p++] = 0x0C;
+        out[p++] = 0x00; out[p++] = 0x01;
+        out[p++] = 0x00; out[p++] = 0x01;
+        out[p++] = 0x00; out[p++] = 0x00; out[p++] = 0x00; out[p++] = 0x3C;
+        out[p++] = 0x00; out[p++] = 0x04;
+        out[p++] = 192; out[p++] = 168; out[p++] = 4; out[p++] = 1;
+
+        sendto(s, out, p, 0, (struct sockaddr*)&from, flen);
+    }
+}
+
+void dns_hijack_start(void)
+{
+    xTaskCreate(dns_task, "dns_hijack", 4096, NULL, 5, NULL);
+    ESP_LOGI(TAG, "DNS hijack started");
+}
+
+
+===== FILE: main\dns_hijack.h =====
+
+#pragma once
+void dns_hijack_start(void);
+
+
+===== FILE: main\footswitch.c =====
+
+// ===== FILE: main/footswitch.c =====
+#include <string.h>
+#include <stdint.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+#include "footswitch.h"
+#include "config_store.h"
+#include "midi_actions.h"
+
+static const char *TAG = "FOOTSW";
+
+// -------------------- switches --------------------
+static const gpio_num_t sw_pins[8] = {
+    (gpio_num_t)42, (gpio_num_t)41, (gpio_num_t)40, (gpio_num_t)39,
+    (gpio_num_t)4,  (gpio_num_t)5,  (gpio_num_t)6,  (gpio_num_t)7
+};
+
+// -------------------- leds --------------------
+static const gpio_num_t led_pins[8] = {
+    (gpio_num_t)8,  (gpio_num_t)3,  (gpio_num_t)9,  (gpio_num_t)10,
+    (gpio_num_t)11, (gpio_num_t)12, (gpio_num_t)13, (gpio_num_t)14
+};
+
+// 0 = active-high (1=ติด), 1 = active-low (0=ติด)
+#define LED_ACTIVE_LOW 0
+
+static footswitch_state_t s_state = {0};
+
+static inline int wrapi(int v, int max)
+{
+    if (max <= 0) return 0;
+    int r = v % max;
+    if (r < 0) r += max;
+    return r;
+}
+
+static inline int pressed(int idx) { return gpio_get_level(sw_pins[idx]) == 0; } // pull-up: pressed=0
+
+// -------------------- led (PWM) helpers --------------------
+static const ledc_mode_t  LEDC_MODE  = LEDC_LOW_SPEED_MODE;
+static const ledc_timer_t LEDC_TIMER = LEDC_TIMER_0;
+
+static const ledc_channel_t LEDC_CH[8] = {
+    LEDC_CHANNEL_0, LEDC_CHANNEL_1, LEDC_CHANNEL_2, LEDC_CHANNEL_3,
+    LEDC_CHANNEL_4, LEDC_CHANNEL_5, LEDC_CHANNEL_6, LEDC_CHANNEL_7
+};
+
+static uint8_t  s_led_on[8];
+static uint8_t  s_brightness = 100;     // 0..100
+static uint32_t s_duty_max = 8191;      // 13-bit default
+
+static void ledc_apply_one(int idx)
+{
+    if (idx < 0 || idx >= 8) return;
+
+    uint32_t duty = 0;
+    uint32_t scaled = (s_duty_max * (uint32_t)s_brightness) / 100u;
+
+#if LED_ACTIVE_LOW
+    if (s_led_on[idx]) duty = (s_duty_max >= scaled) ? (s_duty_max - scaled) : 0;
+    else duty = s_duty_max;
+#else
+    if (s_led_on[idx]) duty = scaled;
+    else duty = 0;
+#endif
+
+    ledc_set_duty(LEDC_MODE, LEDC_CH[idx], duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CH[idx]);
+}
+
+static void led_apply_all(void)
+{
+    for (int i = 0; i < 8; i++) ledc_apply_one(i);
+}
+
+static void led_set_brightness(uint8_t percent)
+{
+    if (percent > 100) percent = 100;
+    if (s_brightness == percent) return;
+    s_brightness = percent;
+    led_apply_all();
+}
+
+static inline void led_write_raw(int idx, int on)
+{
+    if (idx < 0 || idx >= 8) return;
+    uint8_t v = on ? 1u : 0u;
+    if (s_led_on[idx] == v) return;
+    s_led_on[idx] = v;
+    ledc_apply_one(idx);
+}
+
+static inline void led_on(int idx)  { led_write_raw(idx, 1); }
+static inline void led_off(int idx) { led_write_raw(idx, 0); }
+
+// -------------------- run helpers --------------------
+static void run_actions_trigger_list(const action_t *list, cc_behavior_t cc_beh)
+{
+    midi_actions_run(list, MAX_ACTIONS, cc_beh, MIDI_EVT_TRIGGER);
+}
+
+static void run_actions_down_up_list(const action_t *list, cc_behavior_t cc_beh, int event)
+{
+    midi_actions_run(list, MAX_ACTIONS, cc_beh, event);
+}
+
+footswitch_state_t footswitch_get_state(void) { return s_state; }
+
+void footswitch_set_bank(int bank)
+{
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+
+    s_state.bank = (uint8_t)bank;
+
+    // ✅ persist current bank (so reboot stays here)
+    (void)config_store_set_current_bank((uint8_t)bank);
+}
+
+// -------------------- combo / nav lock --------------------
+// combo:
+// 5&6 -> bank--
+// 7&8 -> bank++
+static uint8_t s_combo_mask = 0;
+
+// ✅ NEW: lock ทุกปุ่มระหว่างยังค้างคอมโบอยู่
+static uint8_t s_nav_lock = 0;
+static uint8_t s_nav_hold_mask = 0;     // ปุ่มที่ต้องปล่อยครบถึงปลดล็อก
+static uint8_t s_nav_consumed_mask = 0; // ปุ่มที่ถูกใช้เป็นคอมโบแล้ว ห้ามยิง action ใด ๆ
+static uint8_t s_nav_pending_mask = 0;  // ปุ่ม 5-8 ที่ถูกกดเดี่ยว ๆ (defer ยิงตอนปล่อย)
+
+// helper: เช็คว่ามีปุ่มใน mask ยังค้างอยู่ไหม
+static inline int mask_any_pressed(uint8_t mask)
+{
+    for (int i = 0; i < 8; i++) {
+        if (mask & (1u << i)) {
+            if (pressed(i)) return 1;
+        }
+    }
+    return 0;
+}
+
+static void apply_combo_logic(void)
+{
+    int b5 = pressed(4);
+    int b6 = pressed(5);
+    int b7 = pressed(6);
+    int b8 = pressed(7);
+
+    // ถ้าล็อกอยู่: รอจนปล่อยคอมโบครบ 2 ปุ่ม
+    if (s_nav_lock) {
+        if (!mask_any_pressed(s_nav_hold_mask)) {
+            s_nav_lock = 0;
+            s_nav_hold_mask = 0;
+            s_nav_consumed_mask = 0;
+            s_combo_mask = 0;
+        }
+        return;
+    }
+
+    // detect combo ทันที (ไม่หน่วง)
+    if (b5 && b6) {
+        footswitch_set_bank((int)s_state.bank - 1);
+
+        s_combo_mask = (1u << 4) | (1u << 5);
+        s_nav_lock = 1;
+        s_nav_hold_mask = s_combo_mask;
+        s_nav_consumed_mask = s_combo_mask;
+
+        // ✅ ปุ่มคู่นี้ถูกใช้เป็นคอมโบแล้ว => ยกเลิก pending (กันไม่ให้ไปยิงตอนปล่อย)
+        s_nav_pending_mask &= (uint8_t)~s_combo_mask;
+        return;
+    }
+
+    if (b7 && b8) {
+        footswitch_set_bank((int)s_state.bank + 1);
+
+        s_combo_mask = (1u << 6) | (1u << 7);
+        s_nav_lock = 1;
+        s_nav_hold_mask = s_combo_mask;
+        s_nav_consumed_mask = s_combo_mask;
+
+        s_nav_pending_mask &= (uint8_t)~s_combo_mask;
+        return;
+    }
+
+    // ไม่มีคอมโบ: ไม่ต้องแตะ mask (pending จะตัดสินใจตอนปล่อย)
+}
+
+// -------------------- dynamic state (heap/PSRAM) --------------------
+typedef struct {
+    uint8_t *ab_state;      // [MAX_BANKS][NUM_BTNS] 0=A,1=B
+    uint8_t *group_sel;     // [MAX_BANKS] selected index 0..7 or 0xFF
+    uint8_t  pressed_sel[NUM_BTNS]; // 0=A,1=B (per button for momentary toggle)
+    uint8_t  inited;
+} foot_dyn_t;
+
+static foot_dyn_t s_dyn;
+
+static inline size_t idx_ab(int bank, int btn)
+{
+    return (size_t)(bank * NUM_BTNS + btn);
+}
+
+static void dyn_state_init_once(void)
+{
+    if (s_dyn.inited) return;
+
+    const size_t ab_bytes = (size_t)MAX_BANKS * (size_t)NUM_BTNS;
+    const size_t gp_bytes = (size_t)MAX_BANKS;
+
+    s_dyn.ab_state = (uint8_t *)heap_caps_malloc(ab_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_dyn.ab_state) s_dyn.ab_state = (uint8_t *)heap_caps_malloc(ab_bytes, MALLOC_CAP_8BIT);
+
+    s_dyn.group_sel = (uint8_t *)heap_caps_malloc(gp_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_dyn.group_sel) s_dyn.group_sel = (uint8_t *)heap_caps_malloc(gp_bytes, MALLOC_CAP_8BIT);
+
+    memset(s_dyn.pressed_sel, 0, sizeof(s_dyn.pressed_sel));
+
+    if (s_dyn.ab_state) {
+        memset(s_dyn.ab_state, 0, ab_bytes);
+    } else {
+        ESP_LOGE(TAG, "no heap for ab_state (%u bytes) -> toggle state won't persist", (unsigned)ab_bytes);
+    }
+
+    if (s_dyn.group_sel) {
+        memset(s_dyn.group_sel, 0xFF, gp_bytes);
+    } else {
+        ESP_LOGE(TAG, "no heap for group_sel (%u bytes) -> group led won't persist", (unsigned)gp_bytes);
+    }
+
+    s_dyn.inited = 1;
+}
+
+static inline uint8_t dyn_get_ab(int bank, int btn)
+{
+    if (!s_dyn.ab_state) return 0;
+    return s_dyn.ab_state[idx_ab(bank, btn)] ? 1u : 0u;
+}
+
+static inline void dyn_set_ab(int bank, int btn, uint8_t v)
+{
+    if (!s_dyn.ab_state) return;
+    s_dyn.ab_state[idx_ab(bank, btn)] = (v ? 1u : 0u);
+}
+
+static inline uint8_t dyn_get_group(int bank)
+{
+    if (!s_dyn.group_sel) return 0xFF;
+    return s_dyn.group_sel[bank];
+}
+
+static inline void dyn_set_group(int bank, uint8_t v)
+{
+    if (!s_dyn.group_sel) return;
+    s_dyn.group_sel[bank] = v;
+}
+
+static inline int is_nav_candidate_btn(int i)
+{
+    // ปุ่ม 5-8 (index 4..7) เป็นปุ่มที่สามารถเข้า combo bank ได้
+    return (i >= 4 && i <= 7);
+}
+
+static void foot_task(void *arg)
+{
+    (void)arg;
+
+    dyn_state_init_once();
+
+    // inputs
+    gpio_config_t io = {
+        .pin_bit_mask = 0,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = 1,
+        .pull_down_en = 0,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    for (int i = 0; i < 8; i++) io.pin_bit_mask |= (1ULL << sw_pins[i]);
+    gpio_config(&io);
+
+    // ledc timer + channels
+    ledc_timer_config_t tc = {
+        .speed_mode       = LEDC_MODE,
+        .duty_resolution  = LEDC_TIMER_13_BIT,
+        .timer_num        = LEDC_TIMER,
+        .freq_hz          = 5000,
+        .clk_cfg          = LEDC_AUTO_CLK,
+    };
+    ledc_timer_config(&tc);
+    s_duty_max = (1u << 13) - 1u;
+
+    for (int i = 0; i < 8; i++) {
+        ledc_channel_config_t cc = {
+            .gpio_num   = led_pins[i],
+            .speed_mode = LEDC_MODE,
+            .channel    = LEDC_CH[i],
+            .intr_type  = LEDC_INTR_DISABLE,
+            .timer_sel  = LEDC_TIMER,
+            .duty       = 0,
+            .hpoint     = 0,
+        };
+        ledc_channel_config(&cc);
+    }
+
+    // init cache
+    memset(s_led_on, 0, sizeof(s_led_on));
+    s_brightness = config_store_get_led_brightness();
+    if (s_brightness > 100) s_brightness = 100;
+
+    // default: turn all ON (guide)
+    for (int i = 0; i < 8; i++) s_led_on[i] = 1;
+    led_apply_all();
+
+    uint8_t last[8];
+    for (int i = 0; i < 8; i++) last[i] = 1;
+
+    const int LONG_MS = 400;
+
+    int hold_ms[8] = {0};
+    uint8_t long_fired[8] = {0};
+
+    uint8_t last_bri = s_brightness;
+
+    while (1) {
+        apply_combo_logic();
+
+        // live brightness update
+        uint8_t bri = config_store_get_led_brightness();
+        if (bri > 100) bri = 100;
+        if (bri != last_bri) {
+            last_bri = bri;
+            led_set_brightness(bri);
+        }
+
+        const foot_config_t *cfg = config_store_get();
+        int bank = (int)s_state.bank;
+
+        if (!cfg) {
+            for (int i = 0; i < 8; i++) {
+                int now = gpio_get_level(sw_pins[i]);
+                if (now == 0) led_off(i);
+                else led_on(i);
+                last[i] = (uint8_t)now;
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        for (int i = 0; i < 8; i++) {
+            int now = gpio_get_level(sw_pins[i]); // 0 pressed, 1 released
+            const btn_map_t *m = &cfg->map[bank][i];
+
+            // ✅ NEW: ระหว่าง nav lock ห้ามปุ่มอื่นยิงค่าใด ๆ
+            // ต้องกดใหม่หลังปลดล็อกเท่านั้น
+            if (s_nav_lock && !(s_nav_hold_mask & (1u << i))) {
+                last[i] = (uint8_t)now;
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+                continue;
+            }
+
+            // ✅ ปุ่มที่ถูกใช้เป็นคอมโบแล้ว: ห้ามยิง action ใด ๆ
+            if (s_nav_consumed_mask & (1u << i)) {
+                last[i] = (uint8_t)now;
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+                continue;
+            }
+
+            // (กันปุ่มคอมโบไว้เหมือนเดิม)
+            if (s_combo_mask & (1u << i)) {
+                last[i] = (uint8_t)now;
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+                continue;
+            }
+
+            const action_t *listA = m->short_actions;
+            const action_t *listB = m->long_actions;
+
+            // ✅ NEW: ปุ่ม 5-8 ทำเป็น "defer" เพื่อกันยิง CC ก่อนจะเข้าคอมโบ
+            if (is_nav_candidate_btn(i)) {
+                // edge: down -> mark pending (ยังไม่ยิงอะไร)
+                if (last[i] == 1 && now == 0) {
+                    s_nav_pending_mask |= (1u << i);
+                    hold_ms[i] = 0;
+                    long_fired[i] = 0;
+                    last[i] = (uint8_t)now;
+                    continue;
+                }
+
+                // hold (เก็บเวลาไว้ตัดสิน short/long ตอนปล่อย)
+                if (now == 0) {
+                    if (s_nav_pending_mask & (1u << i)) {
+                        hold_ms[i] += 10;
+                        last[i] = (uint8_t)now;
+                        continue;
+                    }
+                }
+
+                // edge: up -> ถ้า pending และไม่ได้ถูก consume เป็นคอมโบ -> ยิงตอนปล่อย
+                if (last[i] == 0 && now == 1) {
+                    if (s_nav_pending_mask & (1u << i)) {
+                        // clear pending ก่อน
+                        s_nav_pending_mask &= (uint8_t)~(1u << i);
+
+                        // ทำงาน "ตอนปล่อย" เท่านั้น (กันกรณีคอมโบ)
+                        if (m->press_mode == BTN_SHORT_GROUP_LED) {
+                            run_actions_trigger_list(listA, m->cc_behavior);
+                            dyn_set_group(bank, (uint8_t)i);
+                        } else if (m->press_mode == BTN_TOGGLE) {
+                            uint8_t st = dyn_get_ab(bank, i) ? 1 : 0;
+                            run_actions_trigger_list(st ? listB : listA, m->cc_behavior);
+                            dyn_set_ab(bank, i, (uint8_t)!st);
+                        } else if (m->press_mode == BTN_SHORT_LONG) {
+                            if (hold_ms[i] >= LONG_MS) run_actions_trigger_list(listB, m->cc_behavior);
+                            else run_actions_trigger_list(listA, m->cc_behavior);
+                        } else {
+                            // BTN_SHORT หรืออื่น ๆ -> short
+                            run_actions_trigger_list(listA, m->cc_behavior);
+                        }
+
+                        hold_ms[i] = 0;
+                        long_fired[i] = 0;
+                        last[i] = (uint8_t)now;
+                        continue;
+                    }
+                }
+
+                last[i] = (uint8_t)now;
+                continue;
+            }
+
+            // -------------------- NORMAL buttons (1-4) --------------------
+            // edge: down
+            if (last[i] == 1 && now == 0) {
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+
+                // momentary: DOWN
+                if (m->cc_behavior == CC_MOMENTARY) {
+                    if (m->press_mode == BTN_TOGGLE) {
+                        uint8_t st = dyn_get_ab(bank, i) ? 1 : 0;
+                        s_dyn.pressed_sel[i] = st;
+                        run_actions_down_up_list(st ? listB : listA, m->cc_behavior, MIDI_EVT_DOWN);
+                    } else {
+                        run_actions_down_up_list(listA, m->cc_behavior, MIDI_EVT_DOWN);
+                    }
+                }
+
+                // group: trigger + select
+                if (m->press_mode == BTN_SHORT_GROUP_LED) {
+                    run_actions_trigger_list(listA, m->cc_behavior);
+                    dyn_set_group(bank, (uint8_t)i);
+                }
+
+                // toggle: trigger + flip A/B
+                if (m->press_mode == BTN_TOGGLE) {
+                    uint8_t st = dyn_get_ab(bank, i) ? 1 : 0;
+                    run_actions_trigger_list(st ? listB : listA, m->cc_behavior);
+                    dyn_set_ab(bank, i, (uint8_t)!st);
+                }
+            }
+
+            // hold
+            if (now == 0) {
+                hold_ms[i] += 10;
+
+                if (m->press_mode == BTN_SHORT_LONG && !long_fired[i] && hold_ms[i] >= LONG_MS) {
+                    run_actions_trigger_list(listB, m->cc_behavior);
+                    long_fired[i] = 1;
+                }
+            }
+
+            // edge: up
+            if (last[i] == 0 && now == 1) {
+                if (m->cc_behavior == CC_MOMENTARY) {
+                    if (m->press_mode == BTN_TOGGLE) {
+                        uint8_t sel = s_dyn.pressed_sel[i] ? 1 : 0;
+                        run_actions_down_up_list(sel ? listB : listA, m->cc_behavior, MIDI_EVT_UP);
+                    } else {
+                        run_actions_down_up_list(listA, m->cc_behavior, MIDI_EVT_UP);
+                    }
+                }
+
+                // short: fire on release
+                if (m->press_mode == BTN_SHORT) {
+                    run_actions_trigger_list(listA, m->cc_behavior);
+                }
+
+                if (m->press_mode == BTN_SHORT_LONG) {
+                    if (!long_fired[i] && hold_ms[i] < LONG_MS) {
+                        run_actions_trigger_list(listA, m->cc_behavior);
+                    }
+                }
+
+                hold_ms[i] = 0;
+                long_fired[i] = 0;
+            }
+
+            last[i] = (uint8_t)now;
+        }
+
+        // -------------------- LED render pass --------------------
+        for (int i = 0; i < 8; i++) {
+            const btn_map_t *m = &cfg->map[bank][i];
+            int is_down = (gpio_get_level(sw_pins[i]) == 0);
+
+            // group mode
+            if (m->press_mode == BTN_SHORT_GROUP_LED) {
+                uint8_t sel = dyn_get_group(bank);
+                int on = (sel == (uint8_t)i) ? 1 : 0;
+                if (is_down) on = 0;
+                if (on) led_on(i); else led_off(i);
+                continue;
+            }
+
+            // toggle: a+b led select (0=A,1=B)
+            if (m->press_mode == BTN_TOGGLE) {
+                uint8_t ledsel = config_store_get_ab_led_sel(bank, i); // 0=A,1=B
+                int st = dyn_get_ab(bank, i) ? 1 : 0;                  // 0=A,1=B
+                int on = ledsel ? st : (!st);
+
+                if (is_down) on = 0;
+                if (on) led_on(i); else led_off(i);
+                continue;
+            }
+
+            // default: guide
+            if (is_down) led_off(i);
+            else led_on(i);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void footswitch_start(void)
+{
+    // ✅ restore last bank (persisted)
+    footswitch_set_bank((int)config_store_get_current_bank());
+
+    xTaskCreatePinnedToCore(foot_task, "footswitch", 4096, NULL, 6, NULL, 1);
+}
+
+
+===== FILE: main\footswitch.h =====
+
+// ===== FILE: main/footswitch.h =====
+#pragma once
+#include <stdint.h>
+
+typedef struct {
+    uint8_t bank; // 0..bankCount-1
+} footswitch_state_t;
+
+void footswitch_start(void);
+
+footswitch_state_t footswitch_get_state(void);
+void footswitch_set_bank(int bank);
+
+
+===== FILE: main\midi_actions.c =====
+
+// ===== FILE: main/midi_actions.c =====
+#include <string.h>
+#include <stdint.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+#include "midi_actions.h"
+#include "usb_midi_host.h"
+#include "uart_midi_out.h"
+
+static const char *TAG = "MIDI_ACT";
+
+// ✅ moved toggle table to heap (PSRAM first) to save internal DRAM (.bss)
+static uint8_t *s_toggle = NULL; // size = 16*128
+
+static inline uint8_t clamp7(int v)  { if (v < 0) return 0; if (v > 127) return 127; return (uint8_t)v; }
+static inline uint8_t clampCh(int v) { if (v < 1) return 1; if (v > 16) return 16; return (uint8_t)v; }
+
+static inline size_t tog_idx(uint8_t ch /*1..16*/, uint8_t cc /*0..127*/)
+{
+    return (size_t)((ch - 1u) * 128u + cc);
+}
+
+static void toggle_init_once(void)
+{
+    if (s_toggle) return;
+
+    const size_t bytes = 16u * 128u;
+
+    s_toggle = (uint8_t *)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_toggle) s_toggle = (uint8_t *)heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+
+    if (s_toggle) {
+        memset(s_toggle, 0, bytes);
+        ESP_LOGI(TAG, "toggle table allocated (%u bytes)", (unsigned)bytes);
+    } else {
+        ESP_LOGE(TAG, "no heap for toggle table (%u bytes) -> CC_TOGGLE will degrade", (unsigned)bytes);
+    }
+}
+
+static inline void send_cc_all(uint8_t ch, uint8_t cc, uint8_t val)
+{
+    if (usb_midi_ready_fast()) (void)usb_midi_send_cc(ch, cc, val);
+    if (uart_midi_out_ready_fast()) (void)uart_midi_send_cc(ch, cc, val);
+}
+
+static inline void send_pc_all(uint8_t ch, uint8_t pc)
+{
+    if (usb_midi_ready_fast()) (void)usb_midi_send_pc(ch, pc);
+    if (uart_midi_out_ready_fast()) (void)uart_midi_send_pc(ch, pc);
+}
+
+void midi_actions_run(const action_t *actions, int n, cc_behavior_t cc_behavior, int event)
+{
+    const int usb_ok  = usb_midi_ready_fast();
+    const int uart_ok = uart_midi_out_ready_fast();
+
+    // ✅ ถ้าไม่มีทางส่งออกเลย -> drop
+    if (!usb_ok && !uart_ok) return;
+
+    // only allocate when we might need it
+    if (cc_behavior == CC_TOGGLE) {
+        toggle_init_once();
+    }
+
+    for (int i = 0; i < n; i++) {
+        const action_t *a = &actions[i];
+        if (a->type == ACT_NONE) continue;
+
+        uint8_t ch = clampCh(a->ch);
+
+        if (a->type == ACT_CC) {
+            uint8_t cc = clamp7(a->a);
+            uint8_t valA = clamp7(a->b);
+            uint8_t valB = 0;
+
+            if (cc_behavior == CC_NORMAL) {
+                if (event != MIDI_EVT_TRIGGER) continue;
+                send_cc_all(ch, cc, valA);
+
+            } else if (cc_behavior == CC_TOGGLE) {
+                if (event != MIDI_EVT_TRIGGER) continue;
+
+                // if no toggle table available -> behave like NORMAL (no crash)
+                if (!s_toggle) {
+                    send_cc_all(ch, cc, valA);
+                    continue;
+                }
+
+                uint8_t *st = &s_toggle[tog_idx(ch, cc)];
+                *st = (uint8_t)!(*st);
+
+                uint8_t outv = (*st) ? valA : valB;
+                send_cc_all(ch, cc, outv);
+
+            } else if (cc_behavior == CC_MOMENTARY) {
+                if (event == MIDI_EVT_DOWN) {
+                    send_cc_all(ch, cc, valA);
+                } else if (event == MIDI_EVT_UP) {
+                    send_cc_all(ch, cc, valB);
+                }
+            }
+            continue;
+        }
+
+        if (event != MIDI_EVT_TRIGGER) continue;
+
+        if (a->type == ACT_PC) {
+            uint8_t pc = clamp7(a->a);
+            send_pc_all(ch, pc);
+            continue;
+        }
+    }
+}
+
+
+===== FILE: main\midi_actions.h =====
+
+// ===== FILE: main/midi_actions.h =====
+#pragma once
+#include "config_store.h"
+
+// event:
+#define MIDI_EVT_TRIGGER 0  // one-shot (short/long/immediate)
+#define MIDI_EVT_DOWN    1  // press-down
+#define MIDI_EVT_UP      2  // release
+
+void midi_actions_run(const action_t *actions, int n, cc_behavior_t cc_behavior, int event);
+
+
+===== FILE NOT FOUND: main\my_app.c =====
+
+
+===== FILE: main\portal_wifi.c =====
+
+// ===== FILE: main/portal_wifi.c =====
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#include "esp_log.h"
+#include "esp_event.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "esp_http_server.h"
+#include "esp_spiffs.h"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
+
+#include "cJSON.h"
+
+#include "dns_hijack.h"
+#include "config_store.h"
+#include "footswitch.h"
+
+static const char *TAG = "PORTAL";
+static httpd_handle_t s_http = NULL;
+
+// --- buffer size: prefer PSRAM, fallback small internal ---
+#if CONFIG_SPIRAM
+  #define BUF_MAX 16384
+#else
+  #define BUF_MAX 2048
+#endif
+
+static char *s_buf = NULL;
+static SemaphoreHandle_t s_buf_lock = NULL;
+
+static inline int wrapi(int v, int max)
+{
+    if (max <= 0) return 0;
+    int r = v % max;
+    if (r < 0) r += max;
+    return r;
+}
+
+static inline int clampi_local(int v, int lo, int hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static bool check_ok_or_ignore_invalid_state(esp_err_t e, const char *what)
+{
+    if (e == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "%s already initialized", what);
+        return true;
+    }
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(e));
+        return false;
+    }
+    return true;
+}
+
+// esp_http_server ไม่มี enum 503 → ต้องตั้ง status เอง
+static esp_err_t resp_503(httpd_req_t *req, const char *msg)
+{
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, msg ? msg : "service unavailable");
+    return ESP_OK;
+}
+
+static esp_err_t send_spiffs_file(httpd_req_t *req, const char *path, const char *ctype)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "file not found");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, ctype);
+
+    char buf[1024];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
+            fclose(f);
+            httpd_resp_sendstr_chunk(req, NULL);
+            return ESP_FAIL;
+        }
+    }
+
+    fclose(f);
+    httpd_resp_sendstr_chunk(req, NULL);
+    return ESP_OK;
+}
+
+// -------- Static files --------
+static esp_err_t h_root(httpd_req_t *req) { return send_spiffs_file(req, "/spiffs/index.html", "text/html"); }
+static esp_err_t h_js(httpd_req_t *req)   { return send_spiffs_file(req, "/spiffs/app.js", "application/javascript"); }
+static esp_err_t h_css(httpd_req_t *req)  { return send_spiffs_file(req, "/spiffs/style.css", "text/css"); }
+
+// -------- Captive portal detection endpoints (redirect to /) --------
+static esp_err_t h_redirect_to_root(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t h_generate_204(httpd_req_t *req) { return h_redirect_to_root(req); }
+static esp_err_t h_hotspot(httpd_req_t *req)      { return h_redirect_to_root(req); }
+static esp_err_t h_ncsi(httpd_req_t *req)         { return h_redirect_to_root(req); }
+
+// -------- API: META --------
+static esp_err_t h_get_meta(httpd_req_t *req)
+{
+    char out[220];
+    int bc = config_store_bank_count();
+    snprintf(out, sizeof(out),
+             "{\"maxBanks\":%d,\"buttons\":%d,\"bankCount\":%d,\"maxActions\":%d,\"longMs\":%d}",
+             MAX_BANKS, NUM_BTNS, bc, MAX_ACTIONS, 400);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, out);
+    return ESP_OK;
+}
+
+// -------- API: LED (global brightness) --------
+static esp_err_t h_get_led(httpd_req_t *req)
+{
+    uint8_t bri = config_store_get_led_brightness();
+    char out[64];
+    snprintf(out, sizeof(out), "{\"brightness\":%u}", (unsigned)bri);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, out);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_led(httpd_req_t *req)
+{
+    int total = req->content_len;
+    if (total <= 0 || total > 256) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    char buf[257];
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, buf + got, total - got);
+        if (r <= 0) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    buf[total] = 0;
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad json"); return ESP_FAIL; }
+
+    cJSON *jb = cJSON_GetObjectItem(root, "brightness");
+    if (!cJSON_IsNumber(jb)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad json fields");
+        return ESP_FAIL;
+    }
+
+    int bri = clampi_local(jb->valueint, 0, 100);
+    cJSON_Delete(root);
+
+    esp_err_t e = config_store_set_led_brightness((uint8_t)bri);
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "save failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+// -------- API: LAYOUT (banks) --------
+static esp_err_t h_get_layout(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    memset(s_buf, 0, BUF_MAX + 1);
+    esp_err_t e = config_store_get_layout_json(s_buf, BUF_MAX);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "layout read failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_buf);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_layout(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    int total = req->content_len;
+    if (total <= 0 || total > BUF_MAX) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, s_buf + got, total - got);
+        if (r <= 0) {
+            if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    s_buf[total] = 0;
+
+    esp_err_t e = config_store_set_layout_json(s_buf);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "layout invalid");
+        return ESP_FAIL;
+    }
+
+    // clamp bank after layout change
+    footswitch_state_t st = footswitch_get_state();
+    int bc = config_store_bank_count();
+    int b = wrapi((int)st.bank, bc);
+    footswitch_set_bank(b);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+// -------- API: BANK (switch names) --------
+static esp_err_t h_get_bank(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    char q[96] = {0};
+    int bank = 0;
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        char tmp[16];
+        if (httpd_query_key_value(q, "bank", tmp, sizeof(tmp)) == ESP_OK) bank = atoi(tmp);
+    }
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    memset(s_buf, 0, BUF_MAX + 1);
+    esp_err_t e = config_store_get_bank_json(bank, s_buf, BUF_MAX);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "bank read failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_buf);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_bank(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    char q[96] = {0};
+    int bank = 0;
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        char tmp[16];
+        if (httpd_query_key_value(q, "bank", tmp, sizeof(tmp)) == ESP_OK) bank = atoi(tmp);
+    }
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+
+    int total = req->content_len;
+    if (total <= 0 || total > 2048) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, s_buf + got, total - got);
+        if (r <= 0) {
+            if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    s_buf[total] = 0;
+
+    esp_err_t e = config_store_set_bank_json(bank, s_buf);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bank invalid");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+// -------- API: state (bank only) --------
+static esp_err_t h_get_state(httpd_req_t *req)
+{
+    footswitch_state_t st = footswitch_get_state();
+    char out[96];
+    snprintf(out, sizeof(out), "{\"bank\":%u}", (unsigned)st.bank);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, out);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_state(httpd_req_t *req)
+{
+    int total = req->content_len;
+    if (total <= 0 || total > 256) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    char buf[257];
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, buf + got, total - got);
+        if (r <= 0) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    buf[total] = 0;
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad json"); return ESP_FAIL; }
+
+    cJSON *jb = cJSON_GetObjectItem(root, "bank");
+    if (!cJSON_IsNumber(jb)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad json fields");
+        return ESP_FAIL;
+    }
+
+    int bc = config_store_bank_count();
+    int bank = wrapi(jb->valueint, bc);
+
+    footswitch_set_bank(bank);
+
+    cJSON_Delete(root);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+// -------- API: per-button mapping --------
+static esp_err_t h_get_button(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    char q[96] = {0};
+    int bank = 0, btn = 0;
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        char tmp[16];
+        if (httpd_query_key_value(q, "bank", tmp, sizeof(tmp)) == ESP_OK) bank = atoi(tmp);
+        if (httpd_query_key_value(q, "btn",  tmp, sizeof(tmp)) == ESP_OK) btn  = atoi(tmp);
+    }
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn,  NUM_BTNS);
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    memset(s_buf, 0, BUF_MAX + 1);
+    esp_err_t e = config_store_get_btn_json(bank, btn, s_buf, BUF_MAX);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "button read failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_buf);
+    return ESP_OK;
+}
+
+static esp_err_t h_post_button(httpd_req_t *req)
+{
+    if (!s_buf) return resp_503(req, "buffer not ready");
+
+    char q[96] = {0};
+    int bank = 0, btn = 0;
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        char tmp[16];
+        if (httpd_query_key_value(q, "bank", tmp, sizeof(tmp)) == ESP_OK) bank = atoi(tmp);
+        if (httpd_query_key_value(q, "btn",  tmp, sizeof(tmp)) == ESP_OK) btn  = atoi(tmp);
+    }
+
+    int bc = config_store_bank_count();
+    bank = wrapi(bank, bc);
+    btn  = wrapi(btn,  NUM_BTNS);
+
+    int total = req->content_len;
+    if (total <= 0 || total > 8192) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad body");
+        return ESP_FAIL;
+    }
+
+    if (s_buf_lock) xSemaphoreTake(s_buf_lock, portMAX_DELAY);
+
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, s_buf + got, total - got);
+        if (r <= 0) {
+            if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "recv fail");
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    s_buf[total] = 0;
+
+    esp_err_t e = config_store_set_btn_json(bank, btn, s_buf);
+
+    if (s_buf_lock) xSemaphoreGive(s_buf_lock);
+
+    if (e != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "button config invalid");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    return ESP_OK;
+}
+
+// ---- helper: register with log ----
+static void reg_uri(httpd_handle_t h, const httpd_uri_t *u, const char *name)
+{
+    esp_err_t e = httpd_register_uri_handler(h, u);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "register uri failed (%s) uri=%s method=%d err=%s",
+                 (name ? name : "?"),
+                 (u && u->uri) ? u->uri : "(null)",
+                 (u ? (int)u->method : -1),
+                 esp_err_to_name(e));
+    }
+}
+
+static void start_http_server(void)
+{
+    if (s_http) {
+        ESP_LOGW(TAG, "HTTP server already started");
+        return;
+    }
+
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.max_uri_handlers = 24;
+    cfg.max_open_sockets = 2;
+    cfg.stack_size = 4096;
+    cfg.lru_purge_enable = true;
+
+    esp_err_t e = httpd_start(&s_http, &cfg);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "httpd_start failed: %s", esp_err_to_name(e));
+        s_http = NULL;
+        return;
+    }
+
+    httpd_uri_t u_root = { .uri="/", .method=HTTP_GET, .handler=h_root };
+    httpd_uri_t u_js   = { .uri="/app.js", .method=HTTP_GET, .handler=h_js };
+    httpd_uri_t u_css  = { .uri="/style.css", .method=HTTP_GET, .handler=h_css };
+
+    httpd_uri_t u_204  = { .uri="/generate_204", .method=HTTP_GET, .handler=h_generate_204 };
+    httpd_uri_t u_hot  = { .uri="/hotspot-detect.html", .method=HTTP_GET, .handler=h_hotspot };
+    httpd_uri_t u_ncsi = { .uri="/ncsi.txt", .method=HTTP_GET, .handler=h_ncsi };
+    httpd_uri_t u_ct   = { .uri="/connecttest.txt", .method=HTTP_GET, .handler=h_ncsi };
+
+    httpd_uri_t u_meta   = { .uri="/api/meta",   .method=HTTP_GET,  .handler=h_get_meta };
+    httpd_uri_t u_layout = { .uri="/api/layout", .method=HTTP_GET,  .handler=h_get_layout };
+    httpd_uri_t u_pl     = { .uri="/api/layout", .method=HTTP_POST, .handler=h_post_layout };
+
+    httpd_uri_t u_bank_g = { .uri="/api/bank",   .method=HTTP_GET,  .handler=h_get_bank };
+    httpd_uri_t u_bank_p = { .uri="/api/bank",   .method=HTTP_POST, .handler=h_post_bank };
+
+    httpd_uri_t u_gs   = { .uri="/api/state", .method=HTTP_GET,  .handler=h_get_state };
+    httpd_uri_t u_ps   = { .uri="/api/state", .method=HTTP_POST, .handler=h_post_state };
+
+    httpd_uri_t u_gb   = { .uri="/api/button", .method=HTTP_GET,  .handler=h_get_button };
+    httpd_uri_t u_pb   = { .uri="/api/button", .method=HTTP_POST, .handler=h_post_button };
+
+    httpd_uri_t u_led_g = { .uri="/api/led", .method=HTTP_GET,  .handler=h_get_led };
+    httpd_uri_t u_led_p = { .uri="/api/led", .method=HTTP_POST, .handler=h_post_led };
+
+    reg_uri(s_http, &u_root,  "root");
+    reg_uri(s_http, &u_js,    "js");
+    reg_uri(s_http, &u_css,   "css");
+
+    reg_uri(s_http, &u_204,   "generate_204");
+    reg_uri(s_http, &u_hot,   "hotspot");
+    reg_uri(s_http, &u_ncsi,  "ncsi");
+    reg_uri(s_http, &u_ct,    "connecttest");
+
+    reg_uri(s_http, &u_meta,   "meta");
+    reg_uri(s_http, &u_layout, "layout_get");
+    reg_uri(s_http, &u_pl,     "layout_post");
+
+    reg_uri(s_http, &u_bank_g, "bank_get");
+    reg_uri(s_http, &u_bank_p, "bank_post");
+
+    reg_uri(s_http, &u_gs, "state_get");
+    reg_uri(s_http, &u_ps, "state_post");
+
+    reg_uri(s_http, &u_gb, "button_get");
+    reg_uri(s_http, &u_pb, "button_post");
+
+    reg_uri(s_http, &u_led_g, "led_get");
+    reg_uri(s_http, &u_led_p, "led_post");
+
+    ESP_LOGI(TAG, "HTTP server started");
+}
+
+static bool mount_spiffs(void)
+{
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 8,
+        .format_if_mount_failed = true,
+    };
+
+    esp_err_t e = esp_vfs_spiffs_register(&conf);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "SPIFFS mount failed: %s", esp_err_to_name(e));
+        return false;
+    }
+    ESP_LOGI(TAG, "SPIFFS mounted");
+    return true;
+}
+
+void portal_wifi_start(void)
+{
+    if (!s_buf_lock) {
+        s_buf_lock = xSemaphoreCreateMutex();
+        if (!s_buf_lock) {
+            ESP_LOGE(TAG, "mutex alloc failed");
+            return;
+        }
+    }
+
+    if (!check_ok_or_ignore_invalid_state(esp_netif_init(), "esp_netif_init")) return;
+    if (!check_ok_or_ignore_invalid_state(esp_event_loop_create_default(), "esp_event_loop_create_default")) return;
+
+    esp_netif_create_default_wifi_ap();
+
+    ESP_LOGI(TAG, "heap before wifi_init: free=%u, 8bit=%u, internal=%u",
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+    wifi_init_config_t wicfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_err_t we = esp_wifi_init(&wicfg);
+
+    if (we == ESP_ERR_WIFI_INIT_STATE) {
+        ESP_LOGW(TAG, "esp_wifi_init already done");
+    } else if (we != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(we));
+        ESP_LOGE(TAG, "heap at fail: free=%u, 8bit=%u, internal=%u",
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        return;
+    }
+
+    wifi_config_t ap = { 0 };
+    const char *ssid = "FOOTSWITCH-SETUP";
+    const char *pass = "12345678";
+
+    strncpy((char*)ap.ap.ssid, ssid, sizeof(ap.ap.ssid) - 1);
+    strncpy((char*)ap.ap.password, pass, sizeof(ap.ap.password) - 1);
+
+    ap.ap.ssid_len = (uint8_t)strlen(ssid);
+    ap.ap.max_connection = 2;
+    ap.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+    if (strlen((char*)ap.ap.password) == 0) ap.ap.authmode = WIFI_AUTH_OPEN;
+
+    esp_err_t e = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (e != ESP_OK) { ESP_LOGE(TAG, "wifi_set_mode failed: %s", esp_err_to_name(e)); return; }
+
+    e = esp_wifi_set_config(WIFI_IF_AP, &ap);
+    if (e != ESP_OK) { ESP_LOGE(TAG, "wifi_set_config failed: %s", esp_err_to_name(e)); return; }
+
+    e = esp_wifi_start();
+    if (e != ESP_OK) { ESP_LOGE(TAG, "wifi_start failed: %s", esp_err_to_name(e)); return; }
+
+    if (!s_buf) {
+#if CONFIG_SPIRAM
+        s_buf = (char*)heap_caps_malloc(BUF_MAX + 1, MALLOC_CAP_SPIRAM);
+        if (s_buf) {
+            ESP_LOGI(TAG, "portal buffer allocated in PSRAM: %d bytes", BUF_MAX);
+        }
+#endif
+        if (!s_buf) {
+            s_buf = (char*)heap_caps_malloc(BUF_MAX + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (s_buf) {
+                ESP_LOGW(TAG, "portal buffer allocated in INTERNAL: %d bytes", BUF_MAX);
+            }
+        }
+        if (!s_buf) {
+            ESP_LOGE(TAG, "portal buffer alloc failed");
+        } else {
+            s_buf[0] = 0;
+        }
+    }
+
+    (void)mount_spiffs();
+
+    dns_hijack_start();
+    start_http_server();
+
+    if (!s_http) {
+        ESP_LOGW(TAG, "Portal running WITHOUT HTTP server (low heap). Enable PSRAM / reduce Wi-Fi buffers.");
+    }
+
+    ESP_LOGI(TAG, "Captive portal ready. Connect Wi-Fi 'FOOTSWITCH-SETUP' then open 192.168.4.1");
+}
+
+
+===== FILE: main\portal_wifi.h =====
+
+#pragma once
+void portal_wifi_start(void);
+
+
+===== FILE: main\uart_midi_out.c =====
+
+// ===== FILE: main/uart_midi_out.c =====
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "esp_log.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
+
+#include "uart_midi_out.h"
+
+static const char *TAG = "UART_MIDI";
+
+// ---- config ----
+// เนเธเน UART1 เน€เธเธทเนเธญเน€เธฅเธตเนเธขเธเธเธเธเธฑเธ USB-serial (U0TXD/U0RXD)
+#define UART_MIDI_PORT      UART_NUM_1
+#define UART_MIDI_BAUD      31250
+
+// เนเธเธฐเธเธณ: GPIO17 = U1TXD
+#define UART_MIDI_TX_GPIO   17
+#define UART_MIDI_RX_GPIO   (-1)   // not used
+#define UART_MIDI_RTS_GPIO  (-1)
+#define UART_MIDI_CTS_GPIO  (-1)
+
+static int s_inited = 0;
+
+static inline uint8_t clamp7(int v)  { if (v < 0) return 0; if (v > 127) return 127; return (uint8_t)v; }
+static inline uint8_t clampCh(int v) { if (v < 1) return 1; if (v > 16) return 16; return (uint8_t)v; }
+
+void uart_midi_out_init(void)
+{
+    if (s_inited) {
+        ESP_LOGW(TAG, "already inited");
+        return;
+    }
+
+    uart_config_t cfg = {
+        .baud_rate = UART_MIDI_BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+
+    esp_err_t e = uart_param_config(UART_MIDI_PORT, &cfg);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "uart_param_config failed: %s", esp_err_to_name(e));
+        return;
+    }
+
+    e = uart_set_pin(UART_MIDI_PORT,
+                     UART_MIDI_TX_GPIO,
+                     UART_MIDI_RX_GPIO,
+                     UART_MIDI_RTS_GPIO,
+                     UART_MIDI_CTS_GPIO);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "uart_set_pin failed: %s", esp_err_to_name(e));
+        return;
+    }
+
+    // โ… เนเธกเนเธเธฐ TX เธญเธขเนเธฒเธเน€เธ”เธตเธขเธง เธเนเนเธชเน RX buffer > 0 เธเธฑเธ ESP_ERR_INVALID_ARG
+    // TX buffer = 0 => uart_write_bytes เธเธฐเธชเนเธเนเธเธ blocking เนเธ”เน
+    e = uart_driver_install(UART_MIDI_PORT, 256, 0, 0, NULL, 0);
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "uart_driver_install failed: %s", esp_err_to_name(e));
+        return;
+    }
+
+    s_inited = 1;
+    ESP_LOGI(TAG, "UART MIDI OUT ready: port=%d tx=GPIO%d baud=%d",
+             (int)UART_MIDI_PORT, UART_MIDI_TX_GPIO, UART_MIDI_BAUD);
+}
+
+int uart_midi_out_ready_fast(void)
+{
+    return s_inited;
+}
+
+static esp_err_t uart_midi_send_bytes(const uint8_t *b, int n)
+{
+    if (!s_inited) return ESP_ERR_INVALID_STATE;
+    if (!b || n <= 0) return ESP_ERR_INVALID_ARG;
+
+    int w = uart_write_bytes(UART_MIDI_PORT, (const char *)b, n);
+    if (w != n) return ESP_FAIL;
+
+    // เนเธกเนเธเธณเน€เธเนเธเธ•เนเธญเธเธฃเธญ TX done เธเนเนเธ”เน เนเธ•เนเนเธชเนเนเธงเนเนเธซเนเธเธฑเธงเธฃเน
+    (void)uart_wait_tx_done(UART_MIDI_PORT, pdMS_TO_TICKS(20));
+    return ESP_OK;
+}
+
+esp_err_t uart_midi_send_cc(uint8_t ch_1_16, uint8_t cc, uint8_t val)
+{
+    ch_1_16 = clampCh(ch_1_16);
+    uint8_t pkt[3] = {
+        (uint8_t)(0xB0 | ((ch_1_16 - 1) & 0x0F)),
+        (uint8_t)(clamp7(cc) & 0x7F),
+        (uint8_t)(clamp7(val) & 0x7F),
+    };
+    return uart_midi_send_bytes(pkt, 3);
+}
+
+esp_err_t uart_midi_send_pc(uint8_t ch_1_16, uint8_t pc)
+{
+    ch_1_16 = clampCh(ch_1_16);
+    uint8_t pkt[2] = {
+        (uint8_t)(0xC0 | ((ch_1_16 - 1) & 0x0F)),
+        (uint8_t)(clamp7(pc) & 0x7F),
+    };
+    return uart_midi_send_bytes(pkt, 2);
+}
+
+esp_err_t uart_midi_send_note_on(uint8_t ch_1_16, uint8_t note, uint8_t vel)
+{
+    ch_1_16 = clampCh(ch_1_16);
+    uint8_t pkt[3] = {
+        (uint8_t)(0x90 | ((ch_1_16 - 1) & 0x0F)),
+        (uint8_t)(clamp7(note) & 0x7F),
+        (uint8_t)(clamp7(vel) & 0x7F),
+    };
+    return uart_midi_send_bytes(pkt, 3);
+}
+
+esp_err_t uart_midi_send_note_off(uint8_t ch_1_16, uint8_t note, uint8_t vel)
+{
+    ch_1_16 = clampCh(ch_1_16);
+    uint8_t pkt[3] = {
+        (uint8_t)(0x80 | ((ch_1_16 - 1) & 0x0F)),
+        (uint8_t)(clamp7(note) & 0x7F),
+        (uint8_t)(clamp7(vel) & 0x7F),
+    };
+    return uart_midi_send_bytes(pkt, 3);
+}
+
+esp_err_t uart_midi_send_rt(uint8_t rt_byte)
+{
+    uint8_t b = rt_byte;
+    return uart_midi_send_bytes(&b, 1);
+}
+
+
+===== FILE: main\uart_midi_out.h =====
+
+// ===== FILE: main/uart_midi_out.h =====
+#pragma once
+#include <stdint.h>
+#include "esp_err.h"
+
+// init UART MIDI OUT (31250 8N1)
+void uart_midi_out_init(void);
+
+// quick ready check
+int uart_midi_out_ready_fast(void);
+
+// sending helpers
+esp_err_t uart_midi_send_cc(uint8_t ch_1_16, uint8_t cc, uint8_t val);
+esp_err_t uart_midi_send_pc(uint8_t ch_1_16, uint8_t pc);
+esp_err_t uart_midi_send_note_on(uint8_t ch_1_16, uint8_t note, uint8_t vel);
+esp_err_t uart_midi_send_note_off(uint8_t ch_1_16, uint8_t note, uint8_t vel);
+esp_err_t uart_midi_send_rt(uint8_t rt_byte);
+
+
+===== FILE: main\usb_midi_host.c =====
+
+// ===== FILE: main/usb_midi_host.c =====
+#include <string.h>
+#include <stdbool.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+
+#include "esp_log.h"
+#include "esp_err.h"
+
+#include "usb/usb_host.h"
+#include "usb/usb_types_ch9.h"
+
+#include "usb_midi_host.h"
+
+static const char *TAG = "USB_MIDI";
+
+#define SEND_ALL_CABLES 0
+
+typedef struct {
+    usb_host_client_handle_t client_hdl;
+    usb_device_handle_t dev_hdl;
+
+    bool have_device;
+    bool claimed;
+    uint8_t dev_addr;
+
+    uint8_t midi_intf_num;
+    uint8_t midi_ep_out;
+
+    usb_transfer_t *xfer;
+    SemaphoreHandle_t tx_done_sem;
+} usb_midi_host_state_t;
+
+static usb_midi_host_state_t s_usb;
+
+// event flags from callback -> handled in client task
+static volatile bool s_evt_new_dev = false;
+static volatile bool s_evt_dev_gone = false;
+static volatile uint8_t s_evt_new_addr = 0;
+
+// Minimal header for walking descriptors
+typedef struct __attribute__((packed)) {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+} usb_desc_header_t;
+
+// -------------------- Transfer callback --------------------
+static void transfer_cb(usb_transfer_t *transfer)
+{
+    if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
+        // ok
+    } else {
+        ESP_LOGW(TAG, "TX status=%d", (int)transfer->status);
+    }
+    if (s_usb.tx_done_sem) xSemaphoreGive(s_usb.tx_done_sem);
+}
+
+// -------------------- USB client event callback --------------------
+static void client_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg)
+{
+    (void)arg;
+    if (event_msg->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+        s_evt_new_addr = event_msg->new_dev.address;
+        s_evt_new_dev = true;
+    } else if (event_msg->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+        s_evt_dev_gone = true;
+    }
+}
+
+// -------------------- Find MIDI streaming interface + OUT endpoint --------------------
+static bool find_midi_out_ep(const usb_config_desc_t *cfg, uint8_t *out_intf, uint8_t *out_ep)
+{
+    const uint8_t *p = (const uint8_t *)cfg;
+    const uint8_t *end = p + cfg->wTotalLength;
+
+    const usb_intf_desc_t *cur_intf = NULL;
+
+    uint8_t found_intf = 0;
+    uint8_t found_ep   = 0;
+    bool found_bulk = false;
+
+    while (p + sizeof(usb_desc_header_t) <= end) {
+        const usb_desc_header_t *hdr = (const usb_desc_header_t *)p;
+        if (hdr->bLength == 0) break;
+        if (p + hdr->bLength > end) break;
+
+        if (hdr->bDescriptorType == USB_B_DESCRIPTOR_TYPE_INTERFACE) {
+            cur_intf = (const usb_intf_desc_t *)p;
+
+            // MIDI Streaming = Audio class(0x01), subclass(0x03)
+            if (cur_intf->bInterfaceClass == 0x01 && cur_intf->bInterfaceSubClass == 0x03) {
+                // keep
+            } else {
+                cur_intf = NULL;
+            }
+        } else if (hdr->bDescriptorType == USB_B_DESCRIPTOR_TYPE_ENDPOINT && cur_intf) {
+            const usb_ep_desc_t *ep = (const usb_ep_desc_t *)p;
+
+            uint8_t xfer_type = (ep->bmAttributes & 0x03);
+            bool is_bulk      = (xfer_type == 0x02);
+            bool is_interrupt = (xfer_type == 0x03);
+            bool is_out       = ((ep->bEndpointAddress & 0x80) == 0x00);
+
+            if (is_out && (is_bulk || is_interrupt)) {
+                if (is_bulk) {
+                    *out_intf = cur_intf->bInterfaceNumber;
+                    *out_ep   = ep->bEndpointAddress;
+                    return true;
+                }
+                if (!found_bulk) {
+                    found_bulk = false;
+                    found_intf = cur_intf->bInterfaceNumber;
+                    found_ep   = ep->bEndpointAddress;
+                }
+            }
+        }
+        p += hdr->bLength;
+    }
+
+    if (found_ep) {
+        *out_intf = found_intf;
+        *out_ep   = found_ep;
+        return true;
+    }
+    return false;
+}
+
+static inline uint8_t clamp_ch(uint8_t ch_1_16)
+{
+    if (ch_1_16 < 1) return 1;
+    if (ch_1_16 > 16) return 16;
+    return ch_1_16;
+}
+
+// USB-MIDI event packet (4 bytes): [0]=(Cable<<4)|CIN [1]=status [2]=d1 [3]=d2
+static inline void build_pkt_3b(uint8_t *pkt, uint8_t cable, uint8_t cin, uint8_t status, uint8_t d1, uint8_t d2)
+{
+    pkt[0] = (uint8_t)(((cable & 0x0F) << 4) | (cin & 0x0F));
+    pkt[1] = status;
+    pkt[2] = d1;
+    pkt[3] = d2;
+}
+static inline void build_pkt_2b(uint8_t *pkt, uint8_t cable, uint8_t cin, uint8_t status, uint8_t d1)
+{
+    pkt[0] = (uint8_t)(((cable & 0x0F) << 4) | (cin & 0x0F));
+    pkt[1] = status;
+    pkt[2] = d1;
+    pkt[3] = 0x00;
+}
+static inline void build_pkt_1b(uint8_t *pkt, uint8_t cable, uint8_t cin, uint8_t b0)
+{
+    pkt[0] = (uint8_t)(((cable & 0x0F) << 4) | (cin & 0x0F));
+    pkt[1] = b0;
+    pkt[2] = 0x00;
+    pkt[3] = 0x00;
+}
+
+static void midi_close_device(void)
+{
+    if (!s_usb.dev_hdl) {
+        s_usb.have_device = false;
+        s_usb.claimed = false;
+        s_usb.midi_ep_out = 0;
+        s_usb.midi_intf_num = 0;
+        if (s_usb.tx_done_sem) xSemaphoreGive(s_usb.tx_done_sem);
+        return;
+    }
+
+    if (s_usb.midi_ep_out) {
+        (void)usb_host_endpoint_halt(s_usb.dev_hdl, s_usb.midi_ep_out);
+        (void)usb_host_endpoint_flush(s_usb.dev_hdl, s_usb.midi_ep_out);
+    }
+
+    if (s_usb.claimed) {
+        (void)usb_host_interface_release(s_usb.client_hdl, s_usb.dev_hdl, s_usb.midi_intf_num);
+        s_usb.claimed = false;
+    }
+
+    (void)usb_host_device_close(s_usb.client_hdl, s_usb.dev_hdl);
+    s_usb.dev_hdl = NULL;
+
+    s_usb.have_device = false;
+    s_usb.midi_ep_out = 0;
+    s_usb.midi_intf_num = 0;
+
+    if (s_usb.xfer) {
+        s_usb.xfer->device_handle = NULL;
+        s_usb.xfer->bEndpointAddress = 0;
+    }
+
+    if (s_usb.tx_done_sem) xSemaphoreGive(s_usb.tx_done_sem);
+}
+
+static esp_err_t ensure_midi_ready(void)
+{
+    if (!s_usb.have_device) return ESP_ERR_INVALID_STATE;
+
+    if (s_usb.dev_hdl == NULL) {
+        esp_err_t e = usb_host_device_open(s_usb.client_hdl, s_usb.dev_addr, &s_usb.dev_hdl);
+        if (e != ESP_OK) return e;
+
+        const usb_config_desc_t *cfg_desc = NULL;
+        e = usb_host_get_active_config_descriptor(s_usb.dev_hdl, &cfg_desc);
+        if (e != ESP_OK) { midi_close_device(); return e; }
+
+        uint8_t intf = 0, ep_out = 0;
+        if (!find_midi_out_ep(cfg_desc, &intf, &ep_out)) {
+            ESP_LOGE(TAG, "No MIDI OUT endpoint found");
+            midi_close_device();
+            return ESP_FAIL;
+        }
+
+        s_usb.midi_intf_num = intf;
+        s_usb.midi_ep_out = ep_out;
+
+        e = usb_host_interface_claim(s_usb.client_hdl, s_usb.dev_hdl, s_usb.midi_intf_num, 0);
+        if (e != ESP_OK) { midi_close_device(); return e; }
+        s_usb.claimed = true;
+
+        if (s_usb.xfer == NULL) {
+            e = usb_host_transfer_alloc(64, 0, &s_usb.xfer);
+            if (e != ESP_OK) { midi_close_device(); return e; }
+            s_usb.xfer->callback = transfer_cb;
+            s_usb.xfer->context = NULL;
+        }
+
+        s_usb.xfer->device_handle = s_usb.dev_hdl;
+        s_usb.xfer->bEndpointAddress = s_usb.midi_ep_out;
+    }
+
+    return ESP_OK;
+}
+
+int usb_midi_ready_fast(void)
+{
+    return (s_usb.have_device &&
+            s_usb.dev_hdl != NULL &&
+            s_usb.claimed &&
+            s_usb.xfer != NULL &&
+            s_usb.midi_ep_out != 0);
+}
+
+static esp_err_t submit_pkt(const uint8_t pkt4[4])
+{
+    if (ensure_midi_ready() != ESP_OK) return ESP_ERR_INVALID_STATE;
+
+    if (s_usb.tx_done_sem) xSemaphoreTake(s_usb.tx_done_sem, pdMS_TO_TICKS(1000));
+
+    memcpy(s_usb.xfer->data_buffer, pkt4, 4);
+    s_usb.xfer->num_bytes = 4;
+
+    esp_err_t err = usb_host_transfer_submit(s_usb.xfer);
+    if (err != ESP_OK) {
+        if (s_usb.tx_done_sem) xSemaphoreGive(s_usb.tx_done_sem);
+    }
+    return err;
+}
+
+esp_err_t usb_midi_send_cc(uint8_t ch_1_16, uint8_t cc, uint8_t val)
+{
+    ch_1_16 = clamp_ch(ch_1_16);
+
+#if SEND_ALL_CABLES
+    esp_err_t last = ESP_OK;
+    for (uint8_t cable = 0; cable < 16; cable++) {
+        uint8_t pkt[4];
+        build_pkt_3b(pkt, cable, 0x0B, (uint8_t)(0xB0 | ((ch_1_16 - 1) & 0x0F)), (uint8_t)(cc & 0x7F), (uint8_t)(val & 0x7F));
+        last = submit_pkt(pkt);
+        if (last != ESP_OK) break;
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    return last;
+#else
+    uint8_t pkt[4];
+    build_pkt_3b(pkt, 0, 0x0B, (uint8_t)(0xB0 | ((ch_1_16 - 1) & 0x0F)), (uint8_t)(cc & 0x7F), (uint8_t)(val & 0x7F));
+    return submit_pkt(pkt);
+#endif
+}
+
+esp_err_t usb_midi_send_pc(uint8_t ch_1_16, uint8_t pc)
+{
+    ch_1_16 = clamp_ch(ch_1_16);
+
+    uint8_t pkt[4];
+    // CIN 0x0C = Program Change (2 bytes)
+    build_pkt_2b(pkt, 0, 0x0C, (uint8_t)(0xC0 | ((ch_1_16 - 1) & 0x0F)), (uint8_t)(pc & 0x7F));
+    return submit_pkt(pkt);
+}
+
+esp_err_t usb_midi_send_note_on(uint8_t ch_1_16, uint8_t note, uint8_t vel)
+{
+    ch_1_16 = clamp_ch(ch_1_16);
+
+    uint8_t pkt[4];
+    // CIN 0x09 = Note On (3 bytes)
+    build_pkt_3b(pkt, 0, 0x09, (uint8_t)(0x90 | ((ch_1_16 - 1) & 0x0F)), (uint8_t)(note & 0x7F), (uint8_t)(vel & 0x7F));
+    return submit_pkt(pkt);
+}
+
+esp_err_t usb_midi_send_note_off(uint8_t ch_1_16, uint8_t note, uint8_t vel)
+{
+    ch_1_16 = clamp_ch(ch_1_16);
+
+    uint8_t pkt[4];
+    // CIN 0x08 = Note Off (3 bytes)
+    build_pkt_3b(pkt, 0, 0x08, (uint8_t)(0x80 | ((ch_1_16 - 1) & 0x0F)), (uint8_t)(note & 0x7F), (uint8_t)(vel & 0x7F));
+    return submit_pkt(pkt);
+}
+
+// ✅ realtime: CIN 0x0F = single byte (system real-time เช่น F8 clock)
+esp_err_t usb_midi_send_rt(uint8_t rt_byte)
+{
+    uint8_t pkt[4];
+    build_pkt_1b(pkt, 0, 0x0F, rt_byte);
+    return submit_pkt(pkt);
+}
+
+// -------------------- tasks --------------------
+static void usb_host_daemon_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        uint32_t event_flags = 0;
+        esp_err_t err = usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "usb_host_lib_handle_events err=%s", esp_err_to_name(err));
+        }
+    }
+}
+
+static void usb_client_task(void *arg)
+{
+    (void)arg;
+
+    usb_host_client_config_t client_cfg = {
+        .is_synchronous = false,
+        .max_num_event_msg = 8,
+        .async = {
+            .client_event_callback = client_event_cb,
+            .callback_arg = NULL,
+        },
+    };
+
+    esp_err_t e = usb_host_client_register(&client_cfg, &s_usb.client_hdl);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "usb_host_client_register failed: %s", esp_err_to_name(e));
+        vTaskDelete(NULL);
+        return;
+    }
+    ESP_LOGI(TAG, "USB client registered");
+
+    while (1) {
+        usb_host_client_handle_events(s_usb.client_hdl, pdMS_TO_TICKS(20));
+
+        if (s_evt_dev_gone) {
+            s_evt_dev_gone = false;
+            ESP_LOGW(TAG, "DEV_GONE");
+            midi_close_device();
+        }
+
+        if (s_evt_new_dev) {
+            s_evt_new_dev = false;
+            s_usb.dev_addr = s_evt_new_addr;
+            s_usb.have_device = true;
+            ESP_LOGI(TAG, "NEW_DEV addr=%u", s_usb.dev_addr);
+            (void)ensure_midi_ready();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+void usb_midi_host_init(void)
+{
+    // binary semaphore for TX serialize
+    s_usb.tx_done_sem = xSemaphoreCreateBinary();
+    if (!s_usb.tx_done_sem) {
+        ESP_LOGE(TAG, "tx_done_sem alloc failed");
+        return;
+    }
+    xSemaphoreGive(s_usb.tx_done_sem);
+
+    usb_host_config_t host_cfg = {
+        .intr_flags = ESP_INTR_FLAG_LEVEL1,
+    };
+
+    esp_err_t e = usb_host_install(&host_cfg);
+    if (e == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "USB Host already installed");
+    } else if (e != ESP_OK) {
+        ESP_LOGE(TAG, "usb_host_install failed: %s", esp_err_to_name(e));
+        return; // ✅ no abort → avoid reboot loop
+    } else {
+        ESP_LOGI(TAG, "USB Host installed");
+    }
+
+    xTaskCreatePinnedToCore(usb_host_daemon_task, "usb_daemon", 4096, NULL, 20, NULL, 0);
+    xTaskCreatePinnedToCore(usb_client_task, "usb_client", 8192, NULL, 15, NULL, 1);
+}
+
+
+===== FILE: main\usb_midi_host.h =====
+
+// ===== FILE: main/usb_midi_host.h =====
+#pragma once
+#include <stdint.h>
+#include "esp_err.h"
+
+void usb_midi_host_init(void);
+
+// ready check
+int usb_midi_ready_fast(void);
+
+// sending
+esp_err_t usb_midi_send_cc(uint8_t ch_1_16, uint8_t cc, uint8_t val);
+esp_err_t usb_midi_send_pc(uint8_t ch_1_16, uint8_t pc);
+esp_err_t usb_midi_send_note_on(uint8_t ch_1_16, uint8_t note, uint8_t vel);
+esp_err_t usb_midi_send_note_off(uint8_t ch_1_16, uint8_t note, uint8_t vel);
+
+// ✅ realtime (midi clock etc.)
+esp_err_t usb_midi_send_rt(uint8_t rt_byte);
+
+
+===== FILE: partitions.csv =====
+
+# ===== FILE: C:\esp\my_host_project\my_app\partitions.csv =====
+# Name,   Type, SubType, Offset,   Size,     Flags
+phy_init, data, phy,     0xF000,   4K,
+factory,  app,  factory, 0x10000,  3M,
+nvs,      data, nvs,     0x310000, 512K,
+storage,  data, spiffs,  0x390000, 0xC50000,
+coredump, data, coredump,0xFE0000, 0x20000,
+
+
+===== FILE: spiffs\app.js =====
+
+// ===== FILE: spiffs/app.js =====
+function $(id) { return document.getElementById(id); }
+function must(id) {
+  const el = $(id);
+  if (!el) throw new Error(`missing element id="${id}"`);
+  return el;
+}
+
+let META = { maxBanks: 100, buttons: 8, bankCount: 1, maxActions: 20, longMs: 400 };
+let LAYOUT = { bankCount: 1, banks: [] };
+let BANKDATA = { switchNames: [] };
+
+let cur = { bank: 0, btn: 0 };
+let MAP = null;
+
+let LOADING = false;
+let lastUserNavAt = 0;
+
+// limits
+const MAX_BANK_NAME = 10;
+const MAX_SWITCH_NAME = 5;
+
+// led brightness save timer
+let tSaveLed = null;
+let dirtyLed = false;
+
+let dirtyBtn = false;
+let dirtyLayout = false;
+let dirtyBank = false;
+
+// ✅ non-blocking save controller (prevents UI lag)
+let btnVer = 0, btnSaving = false, btnSavePromise = Promise.resolve();
+let layoutVer = 0, layoutSaving = false, layoutSavePromise = Promise.resolve();
+let bankVer = 0, bankSaving = false, bankSavePromise = Promise.resolve();
+let ledVer = 0, ledSaving = false, ledSavePromise = Promise.resolve();
+
+function nowMs() { return Date.now(); }
+
+function wrap(n, max) {
+  max = Math.max(1, Number(max || 1));
+  let r = n % max;
+  if (r < 0) r += max;
+  return r;
+}
+
+function clampInt(v, lo, hi) {
+  v = Number(v);
+  if (!Number.isFinite(v)) v = lo;
+  v = Math.trunc(v);
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
+function clipText(s, maxLen) {
+  return String(s || "").slice(0, maxLen);
+}
+
+function setMsg(text, ok = true) {
+  const el = must("msg");
+  el.textContent = text || "";
+  el.className = "msg " + (ok ? "ok" : "bad");
+}
+
+async function apiGet(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function apiPost(url, obj) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(obj),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function curBankObj() { return (LAYOUT.banks || [])[cur.bank]; }
+
+// ---------- "finish typing then save" helpers ----------
+function isEditableField(el) {
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select";
+}
+
+function forceCommitActiveField() {
+  const el = document.activeElement;
+  if (isEditableField(el)) el.blur();
+}
+
+function hookFinishedTypingInput(inp, onDirty, onFinish) {
+  if (!inp) return;
+
+  inp.addEventListener("input", () => onDirty?.());
+
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      inp.blur();
+    }
+  });
+
+  inp.addEventListener("change", () => onFinish?.());
+  inp.addEventListener("blur", () => onFinish?.());
+}
+
+async function flushPendingSaves() {
+  forceCommitActiveField();
+
+  await Promise.all([layoutSavePromise, bankSavePromise, btnSavePromise, ledSavePromise]);
+
+  if (dirtyLayout) await saveLayoutImmediate();
+  if (dirtyBank) await saveBankImmediate();
+  if (dirtyBtn) await saveButtonImmediate();
+
+  if (tSaveLed) { clearTimeout(tSaveLed); tSaveLed = null; }
+  if (dirtyLed) await saveLedImmediate();
+}
+
+// ---------- render ----------
+function renderHeader() {
+  const b = curBankObj();
+
+  must("curBank").textContent = cur.bank;
+  must("curBankName").textContent = (b && b.name) ? b.name : "bank";
+
+  must("bankName").value = (b && b.name) ? b.name : "";
+
+  const sn = (BANKDATA.switchNames && BANKDATA.switchNames[cur.btn]) ? BANKDATA.switchNames[cur.btn] : "";
+  must("switchName").value = sn;
+
+  // dropdown
+  const sel = must("bankSelect");
+  sel.value = String(cur.bank);
+}
+
+function highlightGrid() {
+  const pads = Array.from(must("btnGrid").querySelectorAll(".pad"));
+  pads.forEach((p) => {
+    const i = Number(p.dataset.idx);
+    p.classList.toggle("active", i === cur.btn);
+  });
+}
+
+function escapeHtml(s) {
+  s = String(s ?? "");
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function renderGridLabels() {
+  const pads = Array.from(must("btnGrid").querySelectorAll(".pad"));
+  pads.forEach((p) => {
+    const i = Number(p.dataset.idx);
+    const name = (BANKDATA.switchNames && BANKDATA.switchNames[i]) ? BANKDATA.switchNames[i] : `SW ${i + 1}`;
+    p.innerHTML = `
+      <div class="padNum">${i + 1}</div>
+      <div class="padName">${escapeHtml(name)}</div>
+    `;
+  });
+}
+
+function makeGrid() {
+  const g = must("btnGrid");
+  g.innerHTML = "";
+
+  const count = Number(META.buttons || 8);
+  for (let i = 0; i < count; i++) {
+    const b = document.createElement("button");
+    b.className = "pad";
+    b.type = "button";
+    b.dataset.idx = String(i);
+    b.onclick = async () => {
+      try {
+        await flushPendingSaves();
+
+        lastUserNavAt = nowMs();
+        cur.btn = i;
+        highlightGrid();
+        renderHeader();
+        await loadButton();
+      } catch (e) {
+        setMsg("load switch failed: " + e.message, false);
+      }
+    };
+    g.appendChild(b);
+  }
+
+  renderGridLabels();
+  highlightGrid();
+}
+
+// ---------- action rows ----------
+function setInputVisible(inp, visible) {
+  inp.style.display = visible ? "" : "none";
+}
+
+// ✅ small label wrappers (inline styles to avoid touching style.css)
+function mkField(labelText, controlEl) {
+  const wrap = document.createElement("div");
+  wrap.className = "fieldWrap";
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "6px";
+
+  const lbl = document.createElement("div");
+  lbl.className = "fieldLbl";
+  lbl.textContent = labelText || "";
+  lbl.style.fontSize = "12px";
+  lbl.style.opacity = "0.8";
+  lbl.style.userSelect = "none";
+  lbl.style.lineHeight = "1";
+
+  wrap.appendChild(lbl);
+  wrap.appendChild(controlEl);
+
+  wrap._lbl = lbl;
+  wrap._ctl = controlEl;
+
+  return wrap;
+}
+
+function mkActionRow(action, onRemove, onDirtyBtn, onFinishBtn, onImmediateSaveBtn) {
+  const row = document.createElement("div");
+  row.className = "action";
+
+  const type = document.createElement("select");
+  ["cc", "pc"].forEach((t) => {
+    const o = document.createElement("option");
+    o.value = t;
+    o.textContent = t;
+    type.appendChild(o);
+  });
+  type.value = action.type || "cc";
+
+  const ch = document.createElement("input");
+  ch.type = "number"; ch.min = 1; ch.max = 16;
+  ch.value = (action.ch ?? 1);
+
+  const a = document.createElement("input");
+  a.type = "number"; a.min = 0; a.max = 127;
+  a.value = (action.a ?? 0);
+
+  const b = document.createElement("input");
+  b.type = "number"; b.min = 0; b.max = 127;
+  b.value = (action.b ?? 0);
+
+  const c = document.createElement("input");
+  c.type = "number"; c.min = 0; c.max = 0;
+  c.value = "0";
+
+  const rm = document.createElement("button");
+  rm.className = "x";
+  rm.textContent = "×";
+  rm.type = "button";
+  rm.onclick = async () => {
+    try {
+      onRemove(row);
+      await onImmediateSaveBtn?.();
+    } catch (e) {
+      setMsg("save failed: " + e.message, false);
+    }
+  };
+
+  const fType = mkField("action", type);
+  const fCh   = mkField("ch", ch);
+  const fA    = mkField("cc#", a);
+  const fB    = mkField("value", b);
+
+  function refresh() {
+    setInputVisible(ch, true);
+    setInputVisible(a, true);
+    setInputVisible(b, true);
+    setInputVisible(c, false);
+
+    if (type.value === "cc") {
+      ch.placeholder = "ch";
+      a.placeholder = "cc#";
+      b.placeholder = "value";
+      a.min = 0; a.max = 127;
+      b.min = 0; b.max = 127;
+
+      fA._lbl.textContent = "cc#";
+      fB._lbl.textContent = "value";
+      fB.style.display = "";
+    } else {
+      ch.placeholder = "ch";
+      a.placeholder = "program";
+      b.placeholder = "";
+      a.min = 0; a.max = 127;
+
+      setInputVisible(b, false);
+      fA._lbl.textContent = "program";
+      fB.style.display = "none";
+    }
+  }
+
+  function getClamped() {
+    const t = type.value;
+    let _ch = clampInt(ch.value || 1, 1, 16);
+    let _a = clampInt(a.value || 0, 0, 127);
+    let _b = clampInt(b.value || 0, 0, 127);
+
+    if (t !== "cc") _b = 0;
+
+    ch.value = String(_ch);
+    a.value = String(_a);
+    b.value = String(_b);
+    c.value = "0";
+
+    return { type: t, ch: _ch, a: _a, b: _b, c: 0 };
+  }
+
+  row._get = () => getClamped();
+
+  type.onchange = async () => {
+    try {
+      refresh();
+      await onImmediateSaveBtn?.();
+    } catch (e) {
+      setMsg("save failed: " + e.message, false);
+    }
+  };
+
+  [ch, a, b].forEach((inp) => hookFinishedTypingInput(inp, onDirtyBtn, onFinishBtn));
+
+  refresh();
+  row.append(fType, fCh, fA, fB, c, rm);
+  return row;
+}
+
+function renderActions(listEl, actions, onDirtyBtn, onFinishBtn, onImmediateSaveBtn) {
+  listEl.innerHTML = "";
+  (actions || []).forEach((act) => {
+    const row = mkActionRow(act, (r) => r.remove(), onDirtyBtn, onFinishBtn, onImmediateSaveBtn);
+    listEl.appendChild(row);
+  });
+}
+
+function collectActions(listEl) {
+  const rows = Array.from(listEl.querySelectorAll(".action"));
+  return rows.map((r) => r._get());
+}
+
+function listCount(listEl) {
+  return listEl.querySelectorAll(".action").length;
+}
+
+function maxActions() {
+  return Number(META.maxActions || 20);
+}
+
+// ---- a+b led ui helpers ----
+function setAbLedUI(sel01) {
+  const a = must("abLedA");
+  const b = must("abLedB");
+  const v = clampInt(sel01 ?? 1, 0, 1);
+  a.checked = (v === 0);
+  b.checked = (v === 1);
+}
+
+function getAbLedUI() {
+  return must("abLedB").checked ? 1 : 0;
+}
+
+function ensureAbLedDefaultIfNeeded() {
+  const a = must("abLedA");
+  const b = must("abLedB");
+  if (!a.checked && !b.checked) b.checked = true;
+}
+
+function updateModeUI() {
+  const pm = Number(must("pressMode").value || "0");
+  const paneRight = must("paneRight");
+  const leftTitle = must("leftTitle");
+  const rightTitle = must("rightTitle");
+  const addRight = must("addRight");
+  const addLeft = must("addLeft");
+
+  const abWrap = must("abLedWrap");
+
+  if (pm === 0) {
+    paneRight.style.display = "none";
+    addRight.style.display = "none";
+    leftTitle.textContent = "commands";
+    addLeft.textContent = `+ add (max ${maxActions()})`;
+    abWrap.style.display = "none";
+  } else if (pm === 1) {
+    paneRight.style.display = "";
+    addRight.style.display = "";
+    leftTitle.textContent = "short";
+    rightTitle.textContent = `long (${META.longMs || 400}ms)`;
+    addLeft.textContent = `+ add short (max ${maxActions()})`;
+    addRight.textContent = `+ add long (max ${maxActions()})`;
+    abWrap.style.display = "none";
+  } else if (pm === 2) {
+    paneRight.style.display = "";
+    addRight.style.display = "";
+    leftTitle.textContent = "a";
+    rightTitle.textContent = "b";
+    addLeft.textContent = `+ add a (max ${maxActions()})`;
+    addRight.textContent = `+ add b (max ${maxActions()})`;
+
+    abWrap.style.display = "block";
+    ensureAbLedDefaultIfNeeded();
+  } else {
+    paneRight.style.display = "none";
+    addRight.style.display = "none";
+    leftTitle.textContent = "group (short)";
+    addLeft.textContent = `+ add (max ${maxActions()})`;
+    abWrap.style.display = "none";
+  }
+}
+
+function applyUIFromMap(m) {
+  must("pressMode").value = String(m.pressMode ?? 0);
+
+  renderActions(
+    must("shortList"),
+    m.short || [],
+    markButtonDirty,
+    requestSaveButtonAfterFinish,
+    saveButtonImmediate
+  );
+  renderActions(
+    must("longList"),
+    m.long || [],
+    markButtonDirty,
+    requestSaveButtonAfterFinish,
+    saveButtonImmediate
+  );
+
+  setAbLedUI(m.abLed ?? 1);
+  updateModeUI();
+}
+
+function readUIToMap() {
+  const pm = Number(must("pressMode").value || "0");
+  let shortArr = collectActions(must("shortList"));
+  let longArr = (pm === 0 || pm === 3) ? [] : collectActions(must("longList"));
+
+  return {
+    pressMode: pm,
+    ccBehavior: 0,
+    abLed: (pm === 2) ? getAbLedUI() : 1,
+    short: shortArr,
+    long: longArr,
+  };
+}
+
+// ---------- non-blocking autosave ----------
+function markButtonDirty() {
+  if (LOADING) return;
+  dirtyBtn = true;
+  btnVer++;
+  setMsg("editing… ✍️");
+}
+
+function markLayoutDirty() {
+  if (LOADING) return;
+  dirtyLayout = true;
+  layoutVer++;
+  setMsg("editing… ✍️");
+}
+
+function markBankDirty() {
+  if (LOADING) return;
+  dirtyBank = true;
+  bankVer++;
+  setMsg("editing… ✍️");
+}
+
+function requestSaveButtonAfterFinish() {
+  if (LOADING) return;
+  if (!dirtyBtn) return;
+
+  if (btnSaving) return;
+  btnSaving = true;
+
+  btnSavePromise = (async () => {
+    while (true) {
+      const v = btnVer;
+      try {
+        await saveButton();
+        if (btnVer === v) {
+          dirtyBtn = false;
+          setMsg("saved ✅");
+          break;
+        }
+      } catch (e) {
+        setMsg("save failed: " + e.message, false);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    btnSaving = false;
+  })();
+}
+
+function requestSaveLayoutAfterFinish() {
+  if (LOADING) return;
+  if (!dirtyLayout) return;
+
+  if (layoutSaving) return;
+  layoutSaving = true;
+
+  layoutSavePromise = (async () => {
+    while (true) {
+      const v = layoutVer;
+      try {
+        await saveLayout();
+        if (layoutVer === v) {
+          dirtyLayout = false;
+          setMsg("saved ✅");
+          break;
+        }
+      } catch (e) {
+        setMsg("save failed: " + e.message, false);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    layoutSaving = false;
+  })();
+}
+
+function requestSaveBankAfterFinish() {
+  if (LOADING) return;
+  if (!dirtyBank) return;
+
+  if (bankSaving) return;
+  bankSaving = true;
+
+  bankSavePromise = (async () => {
+    while (true) {
+      const v = bankVer;
+      try {
+        await saveBank();
+        if (bankVer === v) {
+          dirtyBank = false;
+          setMsg("saved ✅");
+          break;
+        }
+      } catch (e) {
+        setMsg("save failed: " + e.message, false);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    bankSaving = false;
+  })();
+}
+
+async function saveButtonImmediate() {
+  if (LOADING) return;
+  dirtyBtn = true;
+  btnVer++;
+  requestSaveButtonAfterFinish();
+  return btnSavePromise;
+}
+
+async function saveLayoutImmediate() {
+  if (LOADING) return;
+  dirtyLayout = true;
+  layoutVer++;
+  requestSaveLayoutAfterFinish();
+  await layoutSavePromise;
+  renderHeader();
+  refreshLayoutButtons();
+  refreshBankDropdown();
+}
+
+async function saveBankImmediate() {
+  if (LOADING) return;
+  dirtyBank = true;
+  bankVer++;
+  requestSaveBankAfterFinish();
+  await bankSavePromise;
+  renderGridLabels();
+  renderHeader();
+}
+
+// ---------- led brightness ----------
+async function loadLedBrightness() {
+  const r = await apiGet("/api/led");
+  let v = clampInt(r?.brightness ?? 100, 0, 100);
+  must("ledBrightness").value = String(v);
+  must("ledBrightnessVal").textContent = String(v);
+}
+
+async function saveLedBrightness() {
+  const v = clampInt(must("ledBrightness").value ?? 100, 0, 100);
+  await apiPost("/api/led", { brightness: v });
+}
+
+function markLedDirty() {
+  if (LOADING) return;
+  dirtyLed = true;
+  ledVer++;
+}
+
+function requestSaveLedAfterFinish() {
+  if (LOADING) return;
+  if (!dirtyLed) return;
+
+  if (tSaveLed) { clearTimeout(tSaveLed); tSaveLed = null; }
+  tSaveLed = setTimeout(() => {
+    if (ledSaving) return;
+    ledSaving = true;
+
+    ledSavePromise = (async () => {
+      while (true) {
+        const v = ledVer;
+        try {
+          await saveLedBrightness();
+          if (ledVer === v) {
+            dirtyLed = false;
+            setMsg("saved ✅");
+            break;
+          }
+        } catch (e) {
+          setMsg("save led failed: " + e.message, false);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      ledSaving = false;
+    })();
+  }, 250);
+}
+
+async function saveLedImmediate() {
+  if (LOADING) return;
+  dirtyLed = true;
+  ledVer++;
+  requestSaveLedAfterFinish();
+  return ledSavePromise;
+}
+
+// ---------- load/save ----------
+async function loadMeta() {
+  META = await apiGet("/api/meta");
+}
+
+function refreshLayoutButtons() {
+  const bc = Number(LAYOUT.bankCount || 1);
+
+  must("btnAddBank").disabled = bc >= Number(META.maxBanks || 100);
+  must("btnDelBank").disabled = bc <= 1;
+}
+
+function refreshBankDropdown() {
+  const sel = must("bankSelect");
+  sel.innerHTML = "";
+
+  const bc = Number(LAYOUT.bankCount || 1);
+  for (let i = 0; i < bc; i++) {
+    const b = (LAYOUT.banks || [])[i] || { name: `Bank ${i + 1}` };
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = `#${i} · ${b.name || "bank"}`;
+    sel.appendChild(opt);
+  }
+
+  sel.value = String(cur.bank);
+}
+
+async function loadLayout() {
+  LAYOUT = await apiGet("/api/layout");
+
+  const bc = Number(LAYOUT.bankCount || 1);
+  LAYOUT.bankCount = bc;
+
+  const rawBanks = (LAYOUT.banks || []).slice(0, bc);
+  LAYOUT.banks = rawBanks.map((b, idx) => {
+    return {
+      index: idx,
+      name: clipText((b && b.name) ? b.name : ("Bank " + (idx + 1)), MAX_BANK_NAME),
+    };
+  });
+
+  while (LAYOUT.banks.length < bc) {
+    const idx = LAYOUT.banks.length;
+    LAYOUT.banks.push({
+      index: idx,
+      name: clipText("Bank " + (idx + 1), MAX_BANK_NAME),
+    });
+  }
+
+  cur.bank = wrap(cur.bank, LAYOUT.bankCount);
+  refreshLayoutButtons();
+  refreshBankDropdown();
+}
+
+async function saveLayout() {
+  const payload = {
+    bankCount: LAYOUT.bankCount,
+    banks: LAYOUT.banks.map((b, idx) => ({
+      index: idx,
+      name: clipText(b.name, MAX_BANK_NAME),
+    })),
+  };
+  await apiPost("/api/layout", payload);
+}
+
+async function loadBank() {
+  const url = `/api/bank?bank=${cur.bank}`;
+  BANKDATA = await apiGet(url);
+
+  if (!BANKDATA || typeof BANKDATA !== "object") BANKDATA = { switchNames: [] };
+  if (!Array.isArray(BANKDATA.switchNames)) BANKDATA.switchNames = [];
+
+  BANKDATA.switchNames = BANKDATA.switchNames
+    .slice(0, Number(META.buttons || 8))
+    .map((s, i) => {
+      const v = clipText(s, MAX_SWITCH_NAME);
+      return v || `SW${i + 1}`;
+    });
+
+  while (BANKDATA.switchNames.length < Number(META.buttons || 8)) {
+    BANKDATA.switchNames.push(`SW${BANKDATA.switchNames.length + 1}`);
+  }
+
+  renderGridLabels();
+}
+
+async function saveBank() {
+  const payload = {
+    switchNames: (BANKDATA.switchNames || [])
+      .slice(0, Number(META.buttons || 8))
+      .map((s) => clipText(s, MAX_SWITCH_NAME)),
+  };
+  await apiPost(`/api/bank?bank=${cur.bank}`, payload);
+}
+
+async function loadButton() {
+  LOADING = true;
+  try {
+    renderHeader();
+    refreshLayoutButtons();
+
+    await loadBank();
+
+    const url = `/api/button?bank=${cur.bank}&btn=${cur.btn}`;
+    MAP = await apiGet(url);
+
+    if (!MAP || typeof MAP !== "object") MAP = { pressMode: 0, short: [], long: [], abLed: 1 };
+    if (!Array.isArray(MAP.short)) MAP.short = [];
+    if (!Array.isArray(MAP.long)) MAP.long = [];
+
+    applyUIFromMap(MAP);
+    highlightGrid();
+    renderHeader();
+
+    dirtyBtn = false; dirtyLayout = false; dirtyBank = false; dirtyLed = false;
+  } finally {
+    LOADING = false;
+  }
+}
+
+async function saveButton() {
+  const url = `/api/button?bank=${cur.bank}&btn=${cur.btn}`;
+  const payload = readUIToMap();
+  await apiPost(url, payload);
+}
+
+// ---------- sync bank web <-> hw ----------
+async function setHardwareState() {
+  await apiPost("/api/state", { bank: cur.bank });
+}
+
+async function gotoBank(bank) {
+  await flushPendingSaves();
+
+  lastUserNavAt = nowMs();
+  cur.bank = wrap(bank, LAYOUT.bankCount);
+  cur.btn = wrap(cur.btn, Number(META.buttons || 8));
+
+  await setHardwareState();
+  await loadButton();
+}
+
+// ---------- add/remove helpers (insert after current) ----------
+function reindexBanks() {
+  (LAYOUT.banks || []).forEach((b, idx) => { b.index = idx; });
+}
+
+function insertBankAfterCurrent() {
+  const pos = Math.min(LAYOUT.bankCount, cur.bank + 1);
+  const newBank = {
+    index: pos,
+    name: clipText(`Bank ${pos + 1}`, MAX_BANK_NAME),
+  };
+  LAYOUT.banks.splice(pos, 0, newBank);
+  LAYOUT.bankCount += 1;
+  reindexBanks();
+  return pos;
+}
+
+function deleteCurrentBank() {
+  if (LAYOUT.bankCount <= 1) throw new Error("need at least 1 bank");
+  LAYOUT.banks.splice(cur.bank, 1);
+  LAYOUT.bankCount -= 1;
+  reindexBanks();
+  cur.bank = Math.min(cur.bank, LAYOUT.bankCount - 1);
+  cur.btn = wrap(cur.btn, Number(META.buttons || 8));
+}
+
+function tryAddRow(listEl) {
+  if (listCount(listEl) >= maxActions()) {
+    setMsg(`max actions reached (${maxActions()})`, false);
+    return;
+  }
+
+  const row = mkActionRow(
+    { type: "cc", ch: 1, a: 0, b: 127, c: 0 },
+    (r) => r.remove(),
+    markButtonDirty,
+    requestSaveButtonAfterFinish,
+    saveButtonImmediate
+  );
+  listEl.appendChild(row);
+
+  saveButtonImmediate().catch((e) => setMsg("save failed: " + e.message, false));
+}
+
+// ---------- live poll (hardware -> web sync) ----------
+async function pollLive() {
+  try {
+    const st = await apiGet("/api/state");
+    must("liveBank").textContent = st.bank;
+
+    const b = wrap(st.bank, LAYOUT.bankCount);
+
+    if ((nowMs() - lastUserNavAt) > 800) {
+      if (b !== cur.bank) {
+        await flushPendingSaves();
+        cur.bank = b;
+        cur.btn = wrap(cur.btn, Number(META.buttons || 8));
+        await loadButton();
+        setMsg("synced ✅");
+      }
+    }
+  } catch (_) {}
+  setTimeout(pollLive, 450);
+}
+
+// ---------- UI wiring ----------
+function setupUI() {
+  must("bankMinus").onclick = async () => { await gotoBank(cur.bank - 1); };
+  must("bankPlus").onclick  = async () => { await gotoBank(cur.bank + 1); };
+
+  // dropdown
+  must("bankSelect").onchange = async (e) => {
+    const v = clampInt(e.target.value, 0, Math.max(0, (LAYOUT.bankCount || 1) - 1));
+    await gotoBank(v);
+  };
+
+  must("btnAddBank").onclick = async () => {
+    try {
+      await flushPendingSaves();
+      if (LAYOUT.bankCount >= (META.maxBanks || 100)) throw new Error("max banks reached");
+
+      const newIdx = insertBankAfterCurrent();
+      await saveLayoutImmediate();
+      await gotoBank(newIdx);
+      setMsg("added bank ✅");
+    } catch (e) {
+      setMsg("add bank failed: " + e.message, false);
+    }
+  };
+
+  must("btnDelBank").onclick = async () => {
+    try {
+      await flushPendingSaves();
+      const ok = confirm(`delete current bank? (#${cur.bank})`);
+      if (!ok) return;
+
+      deleteCurrentBank();
+      await saveLayoutImmediate();
+      await gotoBank(cur.bank);
+      setMsg("deleted bank ✅");
+    } catch (e) {
+      setMsg("delete bank failed: " + e.message, false);
+    }
+  };
+
+  const bankName = must("bankName");
+  const switchName = must("switchName");
+
+  bankName.oninput = () => {
+    const b = curBankObj();
+    if (!b) return;
+    b.name = clipText(bankName.value, MAX_BANK_NAME);
+    bankName.value = b.name;
+    must("curBankName").textContent = b.name || "bank";
+    markLayoutDirty();
+    refreshBankDropdown();
+  };
+  hookFinishedTypingInput(bankName, () => {}, requestSaveLayoutAfterFinish);
+
+  switchName.oninput = () => {
+    const v = clipText(switchName.value, MAX_SWITCH_NAME);
+    switchName.value = v;
+    if (!Array.isArray(BANKDATA.switchNames)) BANKDATA.switchNames = [];
+    BANKDATA.switchNames[cur.btn] = v || `SW${cur.btn + 1}`;
+    renderGridLabels();
+    markBankDirty();
+  };
+  hookFinishedTypingInput(switchName, () => {}, requestSaveBankAfterFinish);
+
+  // led brightness
+  const led = must("ledBrightness");
+  led.addEventListener("input", () => {
+    const v = clampInt(led.value, 0, 100);
+    led.value = String(v);
+    must("ledBrightnessVal").textContent = String(v);
+    markLedDirty();
+    requestSaveLedAfterFinish();
+  });
+  led.addEventListener("change", () => {
+    markLedDirty();
+    requestSaveLedAfterFinish();
+  });
+
+  // a+b led radio (exclusive)
+  const abA = must("abLedA");
+  const abB = must("abLedB");
+  function onAbChange() {
+    if (LOADING) return;
+    if (Number(must("pressMode").value || "0") !== 2) return;
+    saveButtonImmediate().catch((e) => setMsg("save failed: " + e.message, false));
+  }
+  abA.addEventListener("change", onAbChange);
+  abB.addEventListener("change", onAbChange);
+
+  must("addLeft").onclick = () => tryAddRow(must("shortList"));
+  must("addRight").onclick = () => tryAddRow(must("longList"));
+
+  must("btnReload").onclick = async () => {
+    try {
+      await flushPendingSaves();
+      await loadButton();
+      setMsg("reloaded ✅");
+    } catch (e) {
+      setMsg("reload failed: " + e.message, false);
+    }
+  };
+
+  must("pressMode").onchange = async () => {
+    try {
+      updateModeUI();
+      await saveButtonImmediate();
+    } catch (e) {
+      setMsg("save failed: " + e.message, false);
+    }
+  };
+}
+
+window.addEventListener("load", async () => {
+  try {
+    setMsg("init… ⚙️");
+    await loadMeta();
+    await loadLayout();
+    await loadLedBrightness();
+
+    setupUI();
+    makeGrid();
+
+    try {
+      const st = await apiGet("/api/state");
+      cur.bank = wrap(st.bank, LAYOUT.bankCount);
+    } catch (_) {}
+
+    await gotoBank(cur.bank);
+
+    pollLive();
+    setMsg("ready ✅");
+  } catch (e) {
+    try { setMsg("init failed: " + e.message, false); }
+    catch (_) { alert("init failed: " + e.message); }
+  }
+});
+
+
+===== FILE: spiffs\index.html =====
+
+<!-- ===== FILE: spiffs/index.html ===== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>footswitch midi</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="dot"></span>
+        <div class="brandText">
+          <div class="title">footswitch midi</div>
+          <div class="sub">web editor</div>
+        </div>
+      </div>
+
+      <div class="live">
+        <div class="pill">
+          live: <span id="liveBank">0</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- bank controls -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">bank</div>
+          <div id="msg" class="msg ok"></div>
+        </div>
+
+        <div class="row2">
+          <div class="ctrl">
+            <div class="ctrlLabel">bank</div>
+
+            <div class="ctrlBox">
+              <button id="bankMinus" class="btn" type="button">−</button>
+              <div class="ctrlMid">
+                <div class="ctrlNum">#<span id="curBank">0</span></div>
+                <div class="ctrlName" id="curBankName">bank</div>
+              </div>
+              <button id="bankPlus" class="btn" type="button">+</button>
+            </div>
+
+            <div class="ctrlActions">
+              <button id="btnAddBank" class="btn2" type="button">+ bank</button>
+              <button id="btnDelBank" class="btn2 danger" type="button">− bank</button>
+            </div>
+
+            <div class="field" style="margin-top:12px;">
+              <label for="bankSelect">select bank</label>
+              <select id="bankSelect"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form3">
+          <div class="field">
+            <label for="bankName">bank name (max 10)</label>
+            <input id="bankName" maxlength="10" placeholder="bank name" />
+          </div>
+
+          <div class="field">
+            <label for="switchName">switch name (max 5)</label>
+            <input id="switchName" maxlength="5" placeholder="sw name" />
+          </div>
+
+          <div class="field">
+            <label for="ledBrightness">led brightness (0-100) · <span id="ledBrightnessVal">100</span>%</label>
+            <input id="ledBrightness" type="range" min="0" max="100" step="1" value="100" />
+          </div>
+        </div>
+      </section>
+
+      <!-- switches -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">switches</div>
+          <button id="btnReload" class="btn2" type="button">reload</button>
+        </div>
+
+        <div id="btnGrid" class="padGrid"></div>
+      </section>
+
+      <!-- commands -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">commands</div>
+          <div class="field inline">
+            <label for="pressMode">press mode</label>
+            <select id="pressMode">
+              <option value="0">short</option>
+              <option value="1">short + long</option>
+              <option value="2">a + b</option>
+              <option value="3">short group led</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ✅ only for a+b -->
+        <div id="abLedWrap" class="abLed">
+          <div class="abLedLabel">a+b led</div>
+          <div class="abLedRow" role="radiogroup" aria-label="a+b led selection">
+            <label class="radio">
+              <input id="abLedA" type="radio" name="abLed" value="0" />
+              <span>on at a</span>
+            </label>
+            <label class="radio">
+              <input id="abLedB" type="radio" name="abLed" value="1" />
+              <span>on at b</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="cmdGrid">
+          <div class="pane">
+            <div class="paneHead">
+              <div id="leftTitle" class="paneTitle">commands</div>
+              <button id="addLeft" class="btn2" type="button">+ add</button>
+            </div>
+            <div id="shortList" class="list"></div>
+          </div>
+
+          <div id="paneRight" class="pane">
+            <div class="paneHead">
+              <div id="rightTitle" class="paneTitle">long</div>
+              <button id="addRight" class="btn2" type="button">+ add</button>
+            </div>
+            <div id="longList" class="list"></div>
+          </div>
+        </div>
+
+        <div class="hint">
+          action: <b>cc</b> = ch, cc#, value · <b>pc</b> = ch, program
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+
+===== FILE: spiffs\style.css =====
+
+/* ===== FILE: spiffs/style.css ===== */
+:root{
+  --bg:#0b0f14;
+  --card:#101722;
+  --muted:#7f8ea3;
+  --text:#e7eef9;
+  --line:#1b2636;
+  --pill:#0f1a28;
+  --danger:#ff4d4d;
+  --ok:#5fe39a;
+  --shadow: 0 12px 30px rgba(0,0,0,.35);
+  --r:16px;
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font: 14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+}
+
+.app{
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 14px;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width: 0;
+}
+.dot{
+  width:10px;height:10px;border-radius:99px;
+  background:#2de37f;
+  box-shadow: 0 0 18px rgba(45,227,127,.35);
+}
+.brandText{ min-width:0; }
+.title{ font-weight:700; letter-spacing:.3px; text-transform:lowercase; }
+.sub{ color:var(--muted); font-size:12px; }
+
+.live .pill{
+  background:var(--pill);
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:8px 10px;
+  color:var(--muted);
+  white-space:nowrap;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.cardHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cardTitle{
+  font-weight:700;
+  text-transform:lowercase;
+  letter-spacing:.2px;
+}
+
+.msg{
+  flex:1;
+  text-align:right;
+  color:var(--muted);
+  min-height: 18px;
+}
+.msg.ok{ color:var(--muted); }
+.msg.bad{ color: var(--danger); }
+
+.row2{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ctrl{
+  border:1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.02);
+}
+.ctrlLabel{
+  color:var(--muted);
+  font-size:12px;
+  margin-bottom:8px;
+  text-transform:lowercase;
+}
+.ctrlBox{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.ctrlMid{
+  text-align:center;
+  min-width: 90px;
+}
+.ctrlNum{
+  color:var(--muted);
+  font-size:12px;
+}
+.ctrlName{
+  font-weight:700;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.ctrlActions{
+  display:flex;
+  gap:10px;
+  margin-top:10px;
+}
+
+.btn, .btn2{
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color:var(--text);
+  border-radius: 12px;
+  padding: 8px 12px;
+  cursor:pointer;
+}
+.btn{ width:44px; height:40px; padding:0; font-size:18px; }
+.btn2{ font-size:13px; }
+.btn2:hover, .btn:hover{ background: rgba(255,255,255,.06); }
+.btn2.danger{
+  border-color: rgba(255,77,77,.5);
+  color: #ffd0d0;
+}
+
+.form3{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.field{ display:flex; flex-direction:column; gap:6px; }
+.field.inline{ flex-direction:row; align-items:center; gap:10px; }
+label{
+  color:var(--muted);
+  font-size:12px;
+  text-transform:lowercase;
+}
+input, select{
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.15);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline:none;
+  min-width: 0;
+}
+input:focus, select:focus{
+  border-color: rgba(127,142,163,.6);
+}
+
+.padGrid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 10px;
+}
+.pad{
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 10px;
+  cursor:pointer;
+  min-height: 56px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap: 2px;
+}
+.pad:hover{ background: rgba(255,255,255,.06); }
+.pad.active{
+  border-color: rgba(95,227,154,.55);
+  box-shadow: 0 0 0 2px rgba(95,227,154,.12) inset;
+}
+.padNum{ font-size:12px; color:var(--muted); }
+.padName{
+  font-weight:700;
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.cmdGrid{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.pane{
+  border:1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.02);
+}
+.paneHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom: 10px;
+}
+.paneTitle{ font-weight:700; text-transform:lowercase; }
+
+.list{ display:flex; flex-direction:column; gap:10px; }
+
+.action{
+  display:grid;
+  grid-template-columns: 70px 70px 1fr 1fr 40px;
+  gap: 8px;
+  align-items:center;
+}
+.action select, .action input{ width:100%; }
+.action .x{
+  width:40px;height:40px;
+  border-radius: 12px;
+  border:1px solid rgba(255,77,77,.45);
+  background: rgba(255,77,77,.06);
+  color:#ffd0d0;
+  cursor:pointer;
+}
+.action .x:hover{ background: rgba(255,77,77,.10); }
+
+.hint{
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform:lowercase;
+}
+
+/* ✅ a+b led selector */
+.abLed{
+  display:none;
+  border:1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.02);
+  margin-bottom: 12px;
+}
+.abLedLabel{
+  color:var(--muted);
+  font-size:12px;
+  margin-bottom:8px;
+  text-transform:lowercase;
+}
+.abLedRow{
+  display:flex;
+  gap:16px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.radio{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:var(--muted);
+  font-size:12px;
+  text-transform:lowercase;
+}
+.radio input{
+  width:16px;
+  height:16px;
+  padding:0;
+  margin:0;
+  border-radius: 99px;
+  accent-color: #2de37f;
+}
+
+/* responsive */
+@media (min-width: 860px){
+  /* 60:40 ระหว่าง bank card กับ switches card */
+  .grid{ grid-template-columns: 3fr 2fr; }
+
+  /* commands เต็มแถว */
+  .grid > .card:nth-child(3){ grid-column: 1 / -1; }
+
+  /* ฟอร์ม: bankName + switchName แถวเดียว, brightness ลงมาเต็มแถว */
+  .form3{ grid-template-columns: 1fr 1fr; }
+  .form3 .field:nth-child(3){ grid-column: 1 / -1; }
+
+  .cmdGrid{ grid-template-columns: 1fr 1fr; }
+  .padGrid{ grid-template-columns: repeat(4, minmax(0,1fr)); }
+}
+

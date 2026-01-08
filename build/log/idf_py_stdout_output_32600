@@ -1,0 +1,133 @@
+Command: C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py -p COM5 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --decode-coredumps info --target esp32s3 --revision 0 C:\esp\my_host_project\my_app\build\my_app.elf C:\esp\my_host_project\my_app\build\bootloader\bootloader.elf --force-color -m 'C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe' 'C:\Espressif\frameworks\esp-idf-v5.5.2\tools\idf.py' '-p' 'COM5'
+ESP-R�ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x3fce2820,len:0x1700
+load:0x403c8700,len:0xec0
+load:0x403cb700,len:0x31c0
+entry 0x403c894c
+[0;32mI (31) boot: ESP-IDF v5.5.2-dirty 2nd stage bootloader[0m
+[0;32mI (31) boot: compile time Jan  5 2026 02:03:11[0m
+[0;32mI (31) boot: Multicore bootloader[0m
+[0;32mI (32) boot: chip revision: v0.2[0m
+[0;32mI (34) boot: efuse block revision: v1.3[0m
+[0;32mI (38) qio_mode: Enabling QIO for flash chip MXIC[0m
+[0;32mI (42) boot.esp32s3: Boot SPI Speed : 40MHz[0m
+[0;32mI (46) boot.esp32s3: SPI Mode       : QIO[0m
+[0;32mI (50) boot.esp32s3: SPI Flash Size : 16MB[0m
+[0;32mI (54) boot: Enabling RNG early entropy source...[0m
+[0;32mI (58) boot: Partition Table:[0m
+[0;32mI (61) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (67) boot:  0 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (74) boot:  1 factory          factory app      00 00 00010000 00300000[0m
+[0;32mI (80) boot:  2 nvs              WiFi data        01 02 00310000 00080000[0m
+[0;32mI (87) boot:  3 storage          Unknown data     01 82 00390000 00c50000[0m
+[0;32mI (93) boot:  4 coredump         Unknown data     01 03 00fe0000 00020000[0m
+[0;32mI (100) boot: End of partition table[0m
+[0;32mI (103) esp_image: segment 0: paddr=00010020 vaddr=3c0b0020 size=20d94h (134548) map[0m
+[0;32mI (136) esp_image: segment 1: paddr=00030dbc vaddr=3fc9e500 size=06fb0h ( 28592) load[0m
+[0;32mI (143) esp_image: segment 2: paddr=00037d74 vaddr=40374000 size=082a4h ( 33444) load[0m
+[0;32mI (151) esp_image: segment 3: paddr=00040020 vaddr=42000020 size=a2b9ch (666524) map[0m
+[0;32mI (277) esp_image: segment 4: paddr=000e2bc4 vaddr=4037c2a4 size=121ech ( 74220) load[0m
+[0;32mI (295) esp_image: segment 5: paddr=000f4db8 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (306) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (306) boot: Disabling RNG early entropy source...[0m
+[0;32mI (316) octal_psram: vendor id    : 0x0d (AP)[0m
+[0;32mI (316) octal_psram: dev id       : 0x02 (generation 3)[0m
+[0;32mI (316) octal_psram: density      : 0x03 (64 Mbit)[0m
+[0;32mI (318) octal_psram: good-die     : 0x01 (Pass)[0m
+[0;32mI (323) octal_psram: Latency      : 0x01 (Fixed)[0m
+[0;32mI (327) octal_psram: VCC          : 0x01 (3V)[0m
+[0;32mI (331) octal_psram: SRF          : 0x01 (Fast Refresh)[0m
+[0;32mI (336) octal_psram: BurstType    : 0x01 (Hybrid Wrap)[0m
+[0;32mI (341) octal_psram: BurstLen     : 0x01 (32 Byte)[0m
+[0;32mI (345) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)[0m
+[0;32mI (351) octal_psram: DriveStrength: 0x00 (1/1)[0m
+[0;32mI (355) esp_psram: Found 8MB PSRAM device[0m
+[0;32mI (359) esp_psram: Speed: 40MHz[0m
+[0;32mI (362) cpu_start: Multicore app[0m
+[0;32mI (376) cpu_start: GPIO 44 and 43 are used as console UART I/O pins[0m
+[0;32mI (377) cpu_start: Pro cpu start user code[0m
+[0;32mI (377) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (378) app_init: Application information:[0m
+[0;32mI (382) app_init: Project name:     my_app[0m
+[0;32mI (386) app_init: App version:      1[0m
+[0;32mI (389) app_init: Compile time:     Jan  5 2026 01:58:05[0m
+[0;32mI (394) app_init: ELF file SHA256:  a3f90f85e...[0m
+[0;32mI (398) app_init: ESP-IDF:          v5.5.2-dirty[0m
+[0;32mI (403) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (407) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (411) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (415) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (421) heap_init: At 3FCA9FA8 len 0003F768 (253 KiB): RAM[0m
+[0;32mI (426) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (431) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (436) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (442) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator[0m
+[0;32mI (449) spi_flash: detected chip: mxic[0m
+[0;32mI (452) spi_flash: flash io: qio[0m
+[0;32mI (455) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (461) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (467) esp_core_dump_uart: Init core dump to UART[0m
+[0;32mI (472) main_task: Started on CPU0[0m
+[0;32mI (492) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations[0m
+[0;32mI (492) main_task: Calling app_main()[0m
+[0;32mI (492) APP: app_main enter[0m
+[0;32mI (492) APP: bootstrap start (reset_reason=1)[0m
+[0;32mI (562) APP: config_store_init()[0m
+[0;32mI (1082) CFG: Loaded config v3 from NVS[0m
+[0;32mI (4612) CFG: Loaded led brightness=100[0m
+[0;32mI (4612) CFG: Loaded ab led sel (blob)[0m
+[0;32mI (4662) APP: usb_midi_host_init()[0m
+[0;32mI (4692) USB_MIDI: USB Host installed[0m
+[0;32mI (4692) USB_MIDI: USB client registered[0m
+[0;32mI (4742) APP: portal_wifi_start()[0m
+[0;32mI (4742) PORTAL: heap before wifi_init: free=8383328, 8bit=8415359, internal=255123[0m
+[0;32mI (4742) pp: pp rom version: e7ae62f[0m
+[0;32mI (4742) net80211: net80211 rom version: e7ae62f[0m
+[0;32mI (4752) wifi:wifi driver task: 3fcb70f0, prio:23, stack:6656, core=0[0m
+[0;32mI (4792) wifi:wifi firmware version: ee91c8c[0m
+[0;32mI (4792) wifi:wifi certification version: v7.0[0m
+[0;32mI (4792) wifi:config NVS flash: enabled[0m
+[0;32mI (4792) wifi:config nano formatting: disabled[0m
+[0;32mI (4802) wifi:Init data frame dynamic rx buffer num: 32[0m
+[0;32mI (4802) wifi:Init static rx mgmt buffer num: 5[0m
+[0;32mI (4812) wifi:Init management short buffer num: 32[0m
+[0;32mI (4812) wifi:Init static tx buffer num: 16[0m
+[0;32mI (4812) wifi:Init tx cache buffer num: 32[0m
+[0;32mI (4822) wifi:Init static tx FG buffer num: 2[0m
+[0;32mI (4822) wifi:Init static rx buffer size: 1600[0m
+[0;32mI (4832) wifi:Init static rx buffer num: 16[0m
+[0;32mI (4832) wifi:Init dynamic rx buffer num: 32[0m
+[0;32mI (4832) wifi_init: rx ba win: 16[0m
+[0;32mI (4842) wifi_init: accept mbox: 6[0m
+[0;32mI (4842) wifi_init: tcpip mbox: 32[0m
+[0;32mI (4842) wifi_init: udp mbox: 6[0m
+[0;32mI (4852) wifi_init: tcp mbox: 6[0m
+[0;32mI (4852) wifi_init: tcp tx win: 5760[0m
+[0;32mI (4852) wifi_init: tcp rx win: 5760[0m
+[0;32mI (4862) wifi_init: tcp mss: 1440[0m
+[0;32mI (4862) wifi_init: WiFi/LWIP prefer SPIRAM[0m
+[0;32mI (4862) wifi_init: WiFi IRAM OP enabled[0m
+[0;32mI (4872) wifi_init: WiFi RX IRAM OP enabled[0m
+[0;32mI (4882) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10[0m
+[0;32mI (4912) wifi:mode : softAP (d0:cf:13:15:a9:4d)[0m
+[0;32mI (4922) wifi:Total power save buffer number: 8[0m
+[0;32mI (4922) wifi:Init max length of beacon: 752/752[0m
+[0;32mI (4922) wifi:Init max length of beacon: 752/752[0m
+[0;32mI (4922) PORTAL: portal buffer allocated in PSRAM: 16384 bytes[0m
+[0;32mI (4922) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1[0m
+[0;32mI (5652) PORTAL: SPIFFS mounted[0m
+[0;32mI (5652) DNS: DNS hijack started[0m
+[0;32mI (5662) PORTAL: HTTP server started[0m
+[0;32mI (5662) PORTAL: Captive portal ready. Connect Wi-Fi 'FOOTSWITCH-SETUP' then open 192.168.4.1[0m
+[0;32mI (5712) APP: footswitch_start()[0m
+[0;32mI (5712) APP: system ready ✅[0m
+[1;31mE (7452) ENUM: Configuration descriptor larger than control transfer max length[0m
+[1;31mE (7452) ENUM: [0:0] CHECK_SHORT_CONFIG_DESC FAILED[0m
+[0;32mI (13262) wifi:new:<1,1>, old:<1,1>, ap:<1,1>, sta:<255,255>, prof:1, snd_ch_cfg:0x0[0m
+[0;32mI (13262) wifi:station: 4c:d5:77:87:a1:7f join, AID=1, bgn, 40U[0m
+[0;32mI (13472) wifi:<ba-add>idx:2 (ifx:1, 4c:d5:77:87:a1:7f), tid:0, ssn:2, winSize:64[0m
+[0;32mI (13472) esp_netif_lwip: DHCP server assigned IP to a client, IP is: 192.168.4.2[0m

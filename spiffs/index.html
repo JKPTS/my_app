@@ -1,0 +1,146 @@
+﻿<!-- ===== FILE: spiffs/index.html ===== -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>footswitch midi</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="dot"></span>
+        <div class="brandText">
+          <div class="title">footswitch midi</div>
+          <div class="sub">web editor</div>
+        </div>
+      </div>
+
+      <div class="live">
+        <div class="pill">
+          live: <span id="liveBank">0</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- bank controls -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">bank</div>
+          <div id="msg" class="msg ok"></div>
+        </div>
+
+        <div class="row2">
+          <div class="ctrl">
+            <div class="ctrlLabel">bank</div>
+
+            <div class="ctrlBox">
+              <button id="bankMinus" class="btn" type="button">−</button>
+              <div class="ctrlMid">
+                <div class="ctrlNum">#<span id="curBank">0</span></div>
+                <div class="ctrlName" id="curBankName">bank</div>
+              </div>
+              <button id="bankPlus" class="btn" type="button">+</button>
+            </div>
+
+            <div class="ctrlActions">
+              <button id="btnAddBank" class="btn2" type="button">+ bank</button>
+              <button id="btnDelBank" class="btn2 danger" type="button">− bank</button>
+            </div>
+
+            <div class="field" style="margin-top:12px;">
+              <label for="bankSelect">select bank</label>
+              <select id="bankSelect"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form3">
+          <div class="field">
+            <label for="bankName">bank name (max 10)</label>
+            <input id="bankName" maxlength="10" placeholder="bank name" />
+          </div>
+
+          <div class="field">
+            <label for="switchName">switch name (max 5)</label>
+            <input id="switchName" maxlength="5" placeholder="sw name" />
+          </div>
+
+          <div class="field">
+            <label for="ledBrightness">led brightness (0-100) · <span id="ledBrightnessVal">100</span>%</label>
+            <input id="ledBrightness" type="range" min="0" max="100" step="1" value="100" />
+          </div>
+        </div>
+      </section>
+
+      <!-- switches -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">switches</div>
+          <button id="btnReload" class="btn2" type="button">reload</button>
+        </div>
+
+        <div id="btnGrid" class="padGrid"></div>
+      </section>
+
+      <!-- commands -->
+      <section class="card">
+        <div class="cardHead">
+          <div class="cardTitle">commands</div>
+          <div class="field inline">
+            <label for="pressMode">press mode</label>
+            <select id="pressMode">
+              <option value="0">short</option>
+              <option value="1">short + long</option>
+              <option value="2">a + b</option>
+              <option value="3">short group led</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ✅ only for a+b -->
+        <div id="abLedWrap" class="abLed">
+          <div class="abLedLabel">a+b led</div>
+          <div class="abLedRow" role="radiogroup" aria-label="a+b led selection">
+            <label class="radio">
+              <input id="abLedA" type="radio" name="abLed" value="0" />
+              <span>on at a</span>
+            </label>
+            <label class="radio">
+              <input id="abLedB" type="radio" name="abLed" value="1" />
+              <span>on at b</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="cmdGrid">
+          <div class="pane">
+            <div class="paneHead">
+              <div id="leftTitle" class="paneTitle">commands</div>
+              <button id="addLeft" class="btn2" type="button">+ add</button>
+            </div>
+            <div id="shortList" class="list"></div>
+          </div>
+
+          <div id="paneRight" class="pane">
+            <div class="paneHead">
+              <div id="rightTitle" class="paneTitle">long</div>
+              <button id="addRight" class="btn2" type="button">+ add</button>
+            </div>
+            <div id="longList" class="list"></div>
+          </div>
+        </div>
+
+        <div class="hint">
+          action: <b>cc</b> = ch, cc#, value · <b>pc</b> = ch, program
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

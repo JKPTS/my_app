@@ -1,0 +1,90 @@
+# ===== FILE: C:\esp\my_host_project\my_app\sdkconfig.defaults =====
+
+# ===============================
+# partition table (custom)
+# ===============================
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ===============================
+# flash (match boot log: DIO / 80MHz / 16MB)
+# ===============================
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# monitor baud
+CONFIG_ESPTOOLPY_MONITOR_BAUD=115200
+
+# ===============================
+# console: force UART0 (avoid conflict with USB HOST)
+# ===============================
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# explicitly disable USB console paths
+# CONFIG_ESP_CONSOLE_USB_CDC is not set
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is not set
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED is not set
+# CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG is not set
+# CONFIG_USJ_ENABLE_USB_SERIAL_JTAG is not set
+
+# ===============================
+# psram (ESP32-S3 N16R8)
+# ===============================
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_40M=y
+CONFIG_SPIRAM_SPEED=40
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_BOOT_HW_INIT=y
+CONFIG_SPIRAM_PRE_CONFIGURE_MEMORY_PROTECTION=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_STDATOMIC_S32C1I_SPIRAM_WORKAROUND=y
+
+# allow large global/static (.bss / noinit) to live in PSRAM (fix dram overflow)
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_ALLOW_NOINIT_SEG_EXTERNAL_MEMORY=y
+
+# faster boot, avoid long memtest (can trigger wdt during boot)
+# CONFIG_SPIRAM_MEMTEST is not set
+
+# allow tasks to be created in external memory
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
+
+# ===============================
+# panic / reboot behavior (show reason, but don’t loop silently)
+# ===============================
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+# CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT is not set
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=3
+
+# ===============================
+# watchdog (avoid reboot loop during heavy init; still logs)
+# ===============================
+CONFIG_ESP_TASK_WDT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+# CONFIG_ESP_TASK_WDT_PANIC is not set
+
+# ===============================
+# optimization (smaller binary / less ram pressure)
+# ===============================
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# ===============================
+# logs (keep reasonable; you can raise per-tag later)
+# ===============================
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_BOOTLOADER_LEVEL_INFO=y
+
+# ===============================
+# disable unused features to save memory (optional but recommended)
+# ===============================
+# CONFIG_ETH_ENABLED is not set
+# CONFIG_ESP_GDBSTUB_ENABLED is not set

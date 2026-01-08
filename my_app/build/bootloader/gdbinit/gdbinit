@@ -1,0 +1,2 @@
+source C:/esp/my_host_project/my_app/build/bootloader/gdbinit/symbols
+source C:/esp/my_host_project/my_app/build/bootloader/gdbinit/connect
