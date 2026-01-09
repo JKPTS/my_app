@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "my_app",
-    "project_version":    "fb46a05-dirty",
+    "project_version":    "664738e-dirty",
     "project_path":       "C:/esp/my_host_project/my_app",
     "idf_path":           "C:/Espressif/frameworks/esp-idf-v5.5.2",
     "build_dir":          "C:/esp/my_host_project/my_app/build",

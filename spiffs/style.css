@@ -1,10 +1,11 @@
 ﻿/* ===== FILE: spiffs/style.css ===== */
 :root{
-  --bg:#0b0f14;
-  --card:#101722;
-  --muted:#7f8ea3;
-  --text:#e7eef9;
-  --line:#1b2636;
+  /* slightly higher contrast but still soft on eyes */
+  --bg:#0a0f15;
+  --card:#0f1724;
+  --muted:#93a3bb;
+  --text:#eef4ff;
+  --line:#263447;
   --pill:#0f1a28;
   --danger:#ff4d4d;
   --ok:#5fe39a;
@@ -22,7 +23,7 @@ body{
 }
 
 .app{
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 16px;
 }
@@ -304,6 +305,9 @@ input:focus, select:focus{
 @media (min-width: 860px){
   /* 60:40 ระหว่าง bank card กับ switches card */
   .grid{ grid-template-columns: 3fr 2fr; }
+
+  /* EXP/FS tabs should use full width (single column) */
+  .expGrid{ grid-template-columns: 1fr; }
 
   /* commands เต็มแถว */
   .grid > .card:nth-child(3){ grid-column: 1 / -1; }
