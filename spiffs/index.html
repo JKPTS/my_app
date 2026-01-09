@@ -1,4 +1,4 @@
-﻿<!-- ===== FILE: spiffs/index.html ===== -->
+<!-- ===== FILE: spiffs/index.html ===== -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,12 +6,25 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>footswitch midi</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- minimal tabs styling (keeps your original theme) -->
+  <style>
+    .navTabs{ display:flex; gap:10px; align-items:center; margin: 10px 0 12px; flex-wrap:wrap; }
+    .navTabs .btn2{ cursor:pointer; }
+    .navTabs .btn2.active{ border-color: rgba(95,227,154,.55); box-shadow: 0 0 0 2px rgba(95,227,154,.12) inset; }
+    .tabPane{ display:none; }
+    .tabPane.active{ display:block; }
+    /* keep expfs staging hidden */
+    #expfsWrap{ display:none !important; }
+  </style>
 </head>
 <body>
   <div class="app">
+
+    <!-- ORIGINAL header (unchanged structure) -->
     <header class="top">
       <div class="brand">
-        <span class="dot"></span>
+        <span class="dot" aria-hidden="true"></span>
         <div class="brandText">
           <div class="title">footswitch midi</div>
           <div class="sub">web editor</div>
@@ -19,139 +32,233 @@
       </div>
 
       <div class="live">
-        <div class="pill">
-          live: <span id="liveBank">0</span>
-        </div>
+        <div class="pill">live: <b id="liveBank">0</b></div>
       </div>
     </header>
 
-    <main class="grid">
-      <!-- bank controls -->
-      <section class="card">
-        <div class="cardHead">
-          <div class="cardTitle">bank</div>
-          <div id="msg" class="msg ok"></div>
-        </div>
+    <!-- navbar tabs (NEW) -->
+    <div class="navTabs" aria-label="sections">
+      <button id="tabMain" class="btn2 active" type="button">main</button>
+      <button id="tabExp1" class="btn2" type="button">exp/fs 1</button>
+      <button id="tabExp2" class="btn2" type="button">exp/fs 2</button>
 
-        <div class="row2">
-          <div class="ctrl">
-            <div class="ctrlLabel">bank</div>
+      <div style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
+        <button id="btnReload" class="btn2" type="button">reload</button>
+        <button id="btnExpfsReload" class="btn2" type="button">reload exp/fs</button>
+      </div>
+    </div>
 
-            <div class="ctrlBox">
-              <button id="bankMinus" class="btn" type="button">−</button>
-              <div class="ctrlMid">
-                <div class="ctrlNum">#<span id="curBank">0</span></div>
-                <div class="ctrlName" id="curBankName">bank</div>
+    <!-- MAIN pane: keep your original layout/cards (bank/switches/commands) -->
+    <div id="paneMain" class="tabPane active">
+      <div class="grid">
+
+        <!-- bank -->
+        <section class="card">
+          <div class="cardHead">
+            <div class="cardTitle">bank</div>
+            <div id="msg" class="msg ok"></div>
+          </div>
+
+          <div class="row2">
+            <div class="ctrl">
+              <div class="ctrlLabel">bank</div>
+
+              <div class="ctrlBox">
+                <button id="bankMinus" class="btn" type="button" aria-label="previous bank">−</button>
+
+                <div class="ctrlMid">
+                  <div class="ctrlNum">#<span id="curBank">0</span></div>
+                  <div id="curBankName" class="ctrlName">bank</div>
+                </div>
+
+                <button id="bankPlus" class="btn" type="button" aria-label="next bank">+</button>
               </div>
-              <button id="bankPlus" class="btn" type="button">+</button>
+
+              <div class="ctrlActions">
+                <button id="btnAddBank" class="btn2" type="button">+ bank</button>
+                <button id="btnDelBank" class="btn2 danger" type="button">− bank</button>
+              </div>
+
+              <div class="field" style="margin-top:12px;">
+                <label for="bankSelect">select bank</label>
+                <select id="bankSelect"></select>
+              </div>
             </div>
 
-            <div class="ctrlActions">
-              <button id="btnAddBank" class="btn2" type="button">+ bank</button>
-              <button id="btnDelBank" class="btn2 danger" type="button">− bank</button>
+            <div class="pane">
+              <div class="paneTitle">bank</div>
+
+              <div class="form3">
+                <div class="field">
+                  <label for="bankName">bank name (max 10)</label>
+                  <input id="bankName" maxlength="10" />
+                </div>
+
+                <div class="field">
+                  <label for="switchName">switch name (max 5)</label>
+                  <input id="switchName" maxlength="5" />
+                </div>
+
+                <div class="field">
+                  <label for="ledBrightness">led brightness (0-100) · <span id="ledBrightnessVal">100</span>%</label>
+                  <input id="ledBrightness" type="range" min="0" max="100" step="1" value="100" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- switches -->
+        <section class="card">
+          <div class="cardHead">
+            <div class="cardTitle">switches</div>
+          </div>
+          <div id="btnGrid" class="padGrid"></div>
+        </section>
+
+        <!-- commands -->
+        <section class="card">
+          <div class="cardHead">
+            <div class="cardTitle">commands</div>
+
+            <div class="field inline">
+              <label for="pressMode">press mode</label>
+              <select id="pressMode">
+                <option value="0">short</option>
+                <option value="1">short + long</option>
+                <option value="2">a + b</option>
+                <option value="3">short group led</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="abLedWrap" class="abLed">
+            <div class="abLedLabel">a+b led</div>
+            <div class="abLedRow">
+              <label class="radio">
+                <input id="abLedA" type="radio" name="abLed" value="0" />
+                <span>on at a</span>
+              </label>
+              <label class="radio">
+                <input id="abLedB" type="radio" name="abLed" value="1" />
+                <span>on at b</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="cmdGrid">
+            <div class="pane">
+              <div class="paneHead">
+                <div id="leftTitle" class="paneTitle">commands</div>
+                <button id="addLeft" class="btn2" type="button">+ add</button>
+              </div>
+              <div id="shortList" class="list"></div>
             </div>
 
-            <div class="field" style="margin-top:12px;">
-              <label for="bankSelect">select bank</label>
-              <select id="bankSelect"></select>
+            <div id="paneRight" class="pane">
+              <div class="paneHead">
+                <div id="rightTitle" class="paneTitle">long</div>
+                <button id="addRight" class="btn2" type="button">+ add</button>
+              </div>
+              <div id="longList" class="list"></div>
             </div>
           </div>
-        </div>
 
-        <div class="form3">
-          <div class="field">
-            <label for="bankName">bank name (max 10)</label>
-            <input id="bankName" maxlength="10" placeholder="bank name" />
+          <div class="hint">action: cc = ch, cc#, value · pc = ch, program</div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- EXP/FS 1 pane -->
+    <div id="paneExp1" class="tabPane">
+      <div class="grid">
+        <section class="card">
+          <div class="cardHead">
+            <div class="cardTitle">exp/fs 1</div>
           </div>
+          <div id="expfsPane1"></div>
+        </section>
+      </div>
+    </div>
 
-          <div class="field">
-            <label for="switchName">switch name (max 5)</label>
-            <input id="switchName" maxlength="5" placeholder="sw name" />
+    <!-- EXP/FS 2 pane -->
+    <div id="paneExp2" class="tabPane">
+      <div class="grid">
+        <section class="card">
+          <div class="cardHead">
+            <div class="cardTitle">exp/fs 2</div>
           </div>
+          <div id="expfsPane2"></div>
+        </section>
+      </div>
+    </div>
 
-          <div class="field">
-            <label for="ledBrightness">led brightness (0-100) · <span id="ledBrightnessVal">100</span>%</label>
-            <input id="ledBrightness" type="range" min="0" max="100" step="1" value="100" />
-          </div>
-        </div>
-      </section>
+    <!-- staging container app.js uses (hidden) -->
+    <div id="expfsWrap"></div>
 
-      <!-- switches -->
-      <section class="card">
-        <div class="cardHead">
-          <div class="cardTitle">switches</div>
-</div>
-
-        <div id="btnGrid" class="padGrid"></div>
-      </section>
-
-
-      <!-- commands -->
-      <section class="card">
-        <div class="cardHead">
-          <div class="cardTitle">commands</div>
-          <div class="field inline">
-            <label for="pressMode">press mode</label>
-            <select id="pressMode">
-              <option value="0">short</option>
-              <option value="1">short + long</option>
-              <option value="2">a + b</option>
-              <option value="3">short group led</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- ✅ only for a+b -->
-        <div id="abLedWrap" class="abLed">
-          <div class="abLedLabel">a+b led</div>
-          <div class="abLedRow" role="radiogroup" aria-label="a+b led selection">
-            <label class="radio">
-              <input id="abLedA" type="radio" name="abLed" value="0" />
-              <span>on at a</span>
-            </label>
-            <label class="radio">
-              <input id="abLedB" type="radio" name="abLed" value="1" />
-              <span>on at b</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="cmdGrid">
-          <div class="pane">
-            <div class="paneHead">
-              <div id="leftTitle" class="paneTitle">commands</div>
-              <button id="addLeft" class="btn2" type="button">+ add</button>
-            </div>
-            <div id="shortList" class="list"></div>
-          </div>
-
-          <div id="paneRight" class="pane">
-            <div class="paneHead">
-              <div id="rightTitle" class="paneTitle">long</div>
-              <button id="addRight" class="btn2" type="button">+ add</button>
-            </div>
-            <div id="longList" class="list"></div>
-          </div>
-        </div>
-
-        <div class="hint">
-          action: <b>cc</b> = ch, cc#, value · <b>pc</b> = ch, program
-        </div>
-      </section>
-
-<!-- exp/fs -->
-      <section class="card">
-        <div class="cardHead">
-          <div class="cardTitle">exp/fs</div>
-</div>
-
-        <div id="expfsWrap" class="expfsWrap"></div>
-      </section>
-
-
-    </main>
   </div>
 
+  <script>
+    // navbar tab switching (does not touch your existing DOM ids)
+    (function(){
+      const bMain = document.getElementById('tabMain');
+      const b1 = document.getElementById('tabExp1');
+      const b2 = document.getElementById('tabExp2');
+      const pMain = document.getElementById('paneMain');
+      const p1 = document.getElementById('paneExp1');
+      const p2 = document.getElementById('paneExp2');
+      const key = 'ui_nav_tab';
+
+      function setActive(which){
+        bMain.classList.toggle('active', which==='main');
+        b1.classList.toggle('active', which==='exp1');
+        b2.classList.toggle('active', which==='exp2');
+
+        pMain.classList.toggle('active', which==='main');
+        p1.classList.toggle('active', which==='exp1');
+        p2.classList.toggle('active', which==='exp2');
+
+        try{ localStorage.setItem(key, which); }catch(e){}
+      }
+
+      bMain.addEventListener('click', ()=>setActive('main'));
+      b1.addEventListener('click', ()=>setActive('exp1'));
+      b2.addEventListener('click', ()=>setActive('exp2'));
+
+      let initial = 'main';
+      try{ initial = localStorage.getItem(key) || 'main'; }catch(e){}
+      setActive(initial);
+    })();
+  </script>
+
   <script src="app.js"></script>
+
+  <script>
+    // expfs splitter: move port1/port2 from #expfsWrap into panes (no app.js changes)
+    (function(){
+      const staging = document.getElementById('expfsWrap');
+      const p1 = document.getElementById('expfsPane1');
+      const p2 = document.getElementById('expfsPane2');
+      if(!staging || !p1 || !p2) return;
+
+      function split(){
+        const kids = Array.from(staging.children);
+        if(kids.length===0) return;
+
+        p1.innerHTML = '';
+        p2.innerHTML = '';
+
+        if(kids[0]) p1.appendChild(kids[0]);
+        if(kids[1]) p2.appendChild(kids[1]);
+        for(let i=2;i<kids.length;i++) p2.appendChild(kids[i]);
+      }
+
+      const obs = new MutationObserver(()=>{ clearTimeout(window.__expSplitT); window.__expSplitT=setTimeout(split, 20); });
+      obs.observe(staging, {childList:true});
+
+      window.addEventListener('load', ()=>setTimeout(split, 250));
+    })();
+  </script>
 </body>
 </html>
