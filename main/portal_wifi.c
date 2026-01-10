@@ -1,4 +1,4 @@
-﻿// ===== FILE: main/portal_wifi.c =====
+// ===== FILE: main/portal_wifi.c =====
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -624,8 +624,8 @@ static void start_http_server(void)
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers = 32;
-    cfg.max_open_sockets = 2;
-    cfg.stack_size = 4096;
+    cfg.max_open_sockets = 4;
+    cfg.stack_size = 8192;
     cfg.lru_purge_enable = true;
 
     esp_err_t e = httpd_start(&s_http, &cfg);

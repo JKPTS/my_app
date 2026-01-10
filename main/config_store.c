@@ -1,9 +1,17 @@
-﻿// ===== FILE: main/config_store.c =====
+// ===== FILE: main/config_store.c =====
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdbool.h>
-#include <stdio.h>  // snprintf
+
+// FreeRTOS: must include FreeRTOS.h before semphr/task headers
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+// SPIFFS
+#include "esp_spiffs.h"
 
 #include "esp_log.h"
 #include "esp_err.h"
@@ -13,6 +21,7 @@
 #include "esp_heap_caps.h"
 
 #include "config_store.h"
+#include "display_uart.h"
 
 static const char *TAG = "CFG";
 
@@ -21,6 +30,14 @@ static const char *TAG = "CFG";
  * - ใช้ heap allocate (PSRAM ก่อน) แทน static ใหญ่ ๆ ใน .bss
  */
 static foot_config_t *s_cfg = NULL;
+
+// -------------------- async save (SPIFFS) --------------------
+static SemaphoreHandle_t s_cfg_lock = NULL;
+static TaskHandle_t s_save_task = NULL;
+static volatile uint32_t s_save_seq = 0;
+static bool s_spiffs_ok = false;
+#define CFG_FILE_PATH "/spiffs/cfg_v4.bin"
+
 
 // ✅ สถานะ NVS (กัน abort/รีบูต)
 static bool s_nvs_ok = false;
@@ -47,6 +64,123 @@ typedef struct __attribute__((packed)) {
     uint16_t reserved;
     uint32_t size;
 } cfg_hdr_v4_t;
+// -------------------- SPIFFS persistence (v4) --------------------
+static bool spiffs_mount_once(void)
+{
+    if (s_spiffs_ok) return true;
+
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 8,
+        .format_if_mount_failed = false,
+    };
+
+    esp_err_t e = esp_vfs_spiffs_register(&conf);
+    if (e == ESP_ERR_INVALID_STATE) {
+        // already mounted
+        s_spiffs_ok = true;
+        return true;
+    }
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "SPIFFS mount (for cfg) failed: %s", esp_err_to_name(e));
+        return false;
+    }
+    s_spiffs_ok = true;
+    return true;
+}
+
+static esp_err_t spiffs_load_v4(foot_config_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!spiffs_mount_once()) return ESP_ERR_INVALID_STATE;
+
+    FILE *f = fopen(CFG_FILE_PATH, "rb");
+    if (!f) return ESP_ERR_NOT_FOUND;
+
+    cfg_hdr_v4_t hdr;
+    size_t r1 = fread(&hdr, 1, sizeof(hdr), f);
+    if (r1 != sizeof(hdr)) { fclose(f); return ESP_FAIL; }
+
+    if (hdr.magic != CFG_MAGIC || hdr.ver != CFG_VER || hdr.size != sizeof(foot_config_t)) {
+        fclose(f);
+        return ESP_FAIL;
+    }
+
+    size_t r2 = fread(out, 1, sizeof(foot_config_t), f);
+    fclose(f);
+    if (r2 != sizeof(foot_config_t)) return ESP_FAIL;
+
+    return ESP_OK;
+}
+
+static esp_err_t spiffs_save_v4(const foot_config_t *in)
+{
+    if (!in) return ESP_ERR_INVALID_ARG;
+    if (!spiffs_mount_once()) return ESP_ERR_INVALID_STATE;
+
+    FILE *f = fopen(CFG_FILE_PATH, "wb");
+    if (!f) return ESP_FAIL;
+
+    cfg_hdr_v4_t hdr = {0};
+    hdr.magic = CFG_MAGIC;
+    hdr.ver   = CFG_VER;
+    hdr.size  = (uint32_t)sizeof(foot_config_t);
+
+    size_t w1 = fwrite(&hdr, 1, sizeof(hdr), f);
+    size_t w2 = fwrite(in,  1, sizeof(foot_config_t), f);
+    fflush(f);
+    fclose(f);
+
+    if (w1 != sizeof(hdr) || w2 != sizeof(foot_config_t)) return ESP_FAIL;
+    return ESP_OK;
+}
+
+static void request_async_save(void);
+
+static void save_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        // wait for a request
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // debounce to coalesce bursts
+        vTaskDelay(pdMS_TO_TICKS(150));
+        while (ulTaskNotifyTake(pdTRUE, 0) > 0) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        if (!s_cfg) continue;
+        if (!s_cfg_lock) continue;
+
+        foot_config_t *tmp = (foot_config_t *)heap_caps_malloc(sizeof(foot_config_t), MALLOC_CAP_8BIT);
+        if (!tmp) {
+            ESP_LOGW(TAG, "save_task: no mem");
+            continue;
+        }
+
+        xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+        memcpy(tmp, s_cfg, sizeof(*tmp));
+        xSemaphoreGive(s_cfg_lock);
+
+        esp_err_t e = spiffs_save_v4(tmp);
+        free(tmp);
+
+        if (e != ESP_OK) {
+            ESP_LOGW(TAG, "cfg save (spiffs) failed: %s", esp_err_to_name(e));
+        } else {
+            ESP_LOGI(TAG, "cfg saved (spiffs)");
+        }
+    }
+}
+
+static void request_async_save(void)
+{
+    s_save_seq++;
+    if (s_save_task) xTaskNotifyGive(s_save_task);
+}
+
 
 // ---------- legacy structures (v3 had pages) ----------
 #define LEGACY_V3_MAX_BANKS 20
@@ -442,6 +576,22 @@ static void sanitize_cfg(foot_config_t *cfg)
     cfg->bank_count = (uint8_t)clampi((int)cfg->bank_count, 1, MAX_BANKS);
 }
 
+
+// Remove legacy large blobs from NVS to free space (config is now stored in SPIFFS)
+static void nvs_cleanup_large_keys(void)
+{
+    if (!s_nvs_ok) return;
+
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("footsw", NVS_READWRITE, &h);
+    if (e != ESP_OK) return;
+
+    // ignore errors if keys don't exist
+    (void)nvs_erase_key(h, "cfg_hdr");
+    (void)nvs_erase_key(h, "cfg_data");
+    (void)nvs_commit(h);
+    nvs_close(h);
+}
 static void set_defaults(foot_config_t *cfg)
 {
     if (!cfg) return;
@@ -651,6 +801,8 @@ void config_store_init(void)
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_INVALID_STATE) {
         s_nvs_ok = true;
+    nvs_cleanup_large_keys();
+
         e = ESP_OK;
     } else if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS needs erase (e=%s)", esp_err_to_name(e));
@@ -681,15 +833,15 @@ void config_store_init(void)
             e = nvs_load_migrate_v3_to_v4(s_cfg);
             if (e == ESP_OK) {
                 ESP_LOGW(TAG, "Migrated legacy v3 -> v4 (page removed, keep page0)");
-                (void)nvs_save_v4(s_cfg);
+                (void)spiffs_save_v4(s_cfg);
             } else {
                 ESP_LOGW(TAG, "No saved config (v4/v3), using defaults");
-                (void)nvs_save_v4(s_cfg);
+                (void)spiffs_save_v4(s_cfg);
             }
         }
 
         sanitize_cfg(s_cfg);
-        (void)nvs_save_v4(s_cfg);
+        (void)spiffs_save_v4(s_cfg);
 
         // led brightness
         uint8_t bri = 100;
@@ -808,18 +960,26 @@ esp_err_t config_store_set_layout_json(const char *json)
     cJSON *root = cJSON_Parse(json);
     if (!root) return ESP_FAIL;
 
-    cJSON *jbc = cJSON_GetObjectItem(root, "bankCount");
     cJSON *jbanks = cJSON_GetObjectItem(root, "banks");
-    if (!cJSON_IsNumber(jbc) || !cJSON_IsArray(jbanks)) {
+    cJSON *jbc    = cJSON_GetObjectItem(root, "bankCount");
+
+    if (!cJSON_IsArray(jbanks)) {
         cJSON_Delete(root);
         return ESP_FAIL;
     }
 
-    int bc = clampi(jbc->valueint, 1, MAX_BANKS);
+    int bc = cJSON_GetArraySize(jbanks);
+    if (cJSON_IsNumber(jbc)) {
+        bc = clampi(jbc->valueint, 1, MAX_BANKS);
+    }
+    bc = clampi(bc, 1, MAX_BANKS);
 
     uint8_t new_bank_count = (uint8_t)bc;
+
     char new_bank_name[MAX_BANKS][NAME_LEN];
+    if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
     memcpy(new_bank_name, s_cfg->bank_name, sizeof(new_bank_name));
+    if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
 
     for (int b = 0; b < bc; b++) {
         cJSON *bo = cJSON_GetArrayItem(jbanks, b);
@@ -834,6 +994,8 @@ esp_err_t config_store_set_layout_json(const char *json)
 
     cJSON_Delete(root);
 
+    if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+
     s_cfg->bank_count = new_bank_count;
     memcpy(s_cfg->bank_name, new_bank_name, sizeof(new_bank_name));
 
@@ -843,9 +1005,15 @@ esp_err_t config_store_set_layout_json(const char *json)
     int cur = (int)s_cur_bank;
     int bc2 = config_store_bank_count();
     s_cur_bank = (uint8_t)wrapi(cur, bc2);
+
+    if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+
+    // persist current bank asynchronously (small NVS), but do not block UI
     if (s_nvs_ok) (void)nvs_save_cur_bank(s_cur_bank);
 
-    return nvs_save_v4(s_cfg);
+    request_async_save();
+    display_uart_request_refresh();
+    return ESP_OK;
 }
 
 // ---- bank json (switch names) ----
@@ -891,26 +1059,52 @@ esp_err_t config_store_set_bank_json(int bank, const char *json)
     cJSON *root = cJSON_Parse(json);
     if (!root) return ESP_FAIL;
 
-    cJSON *arr = cJSON_GetObjectItem(root, "switchNames");
-    if (!cJSON_IsArray(arr)) {
-        cJSON_Delete(root);
-        return ESP_FAIL;
+    bool touched = false;
+
+    // optional bank name
+    cJSON *bn = cJSON_GetObjectItem(root, "bankName");
+    if (cJSON_IsString(bn)) {
+        if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+        safe_set_name(s_cfg->bank_name[bank], bn->valuestring, s_cfg->bank_name[bank]);
+        s_cfg->bank_name[bank][NAME_LEN - 1] = 0;
+        if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+        touched = true;
     }
 
-    int n = cJSON_GetArraySize(arr);
-    if (n > NUM_BTNS) n = NUM_BTNS;
+    // optional switch names
+    cJSON *arr = cJSON_GetObjectItem(root, "switchNames");
+    if (cJSON_IsArray(arr)) {
+        int n = cJSON_GetArraySize(arr);
+        if (n > NUM_BTNS) n = NUM_BTNS;
 
-    for (int k = 0; k < n; k++) {
-        cJSON *s = cJSON_GetArrayItem(arr, k);
-        if (cJSON_IsString(s)) {
-            safe_set_name(s_cfg->switch_name[bank][k], s->valuestring, s_cfg->switch_name[bank][k]);
+        if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+        for (int k = 0; k < n; k++) {
+            cJSON *s = cJSON_GetArrayItem(arr, k);
+            if (cJSON_IsString(s)) {
+                safe_set_name(s_cfg->switch_name[bank][k], s->valuestring, s_cfg->switch_name[bank][k]);
+            }
+            s_cfg->switch_name[bank][k][NAME_LEN - 1] = 0;
         }
-        s_cfg->switch_name[bank][k][NAME_LEN - 1] = 0;
+        if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+        touched = true;
     }
 
     cJSON_Delete(root);
+
+    if (!touched) return ESP_FAIL;
+
+    if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
     sanitize_cfg(s_cfg);
-    return nvs_save_v4(s_cfg);
+    if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+
+    request_async_save();
+
+    // if current bank changed, refresh display
+    if ((int)config_store_get_current_bank() == bank) {
+        display_uart_request_refresh();
+    }
+
+    return ESP_OK;
 }
 
 // ---------- JSON helpers (per-button) ----------
@@ -1074,9 +1268,10 @@ esp_err_t config_store_set_btn_json(int bank, int btn, const char *json)
     cJSON_Delete(root);
     sanitize_cfg(s_cfg);
 
-    esp_err_t e = nvs_save_v4(s_cfg);
-    if (e != ESP_OK) return e;
+    request_async_save();
     (void)nvs_save_ab_led_sel();
+    // if editing current bank, refresh display names
+    if ((int)config_store_get_current_bank() == bank) display_uart_request_refresh();
     return ESP_OK;
 }
 
@@ -1125,8 +1320,13 @@ esp_err_t config_store_set_current_bank(uint8_t bank)
 {
     int bc = config_store_bank_count();
     s_cur_bank = (uint8_t)wrapi((int)bank, bc);
-    if (!s_nvs_ok) return ESP_ERR_INVALID_STATE;
-    return nvs_save_cur_bank(s_cur_bank);
+
+    // best-effort persist, but do not block or fail bank change
+    if (s_nvs_ok) (void)nvs_save_cur_bank(s_cur_bank);
+
+    // refresh external display (non-blocking)
+    display_uart_request_refresh();
+    return ESP_OK;
 }
 
 // -------------------- exp/fs JSON API --------------------

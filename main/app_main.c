@@ -1,4 +1,4 @@
-﻿// ===== FILE: main/app_main.c =====
+// ===== FILE: main/app_main.c =====
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_system.h"
@@ -11,6 +11,7 @@
 #include "usb_midi_host.h"
 #include "uart_midi_out.h"
 #include "expfs.h"
+#include "display_uart.h"
 
 #include "nvs_flash.h"
 
@@ -46,7 +47,12 @@ static void bootstrap_task(void *arg)
     // 2) config
     ESP_LOGI(TAG, "config_store_init()");
     config_store_init();
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    // 2.1) uart display (bank/switch names)
+    ESP_LOGI(TAG, "display_uart_init()");
+    display_uart_init();
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     // 3) usb midi host
     ESP_LOGI(TAG, "usb_midi_host_init()");

@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "my_app",
-    "project_version":    "664738e-dirty",
+    "project_version":    "4194fe8-dirty",
     "project_path":       "C:/esp/my_host_project/my_app",
     "idf_path":           "C:/Espressif/frameworks/esp-idf-v5.5.2",
     "build_dir":          "C:/esp/my_host_project/my_app/build",
@@ -1225,7 +1225,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "C:/esp/my_host_project/my_app/build/esp-idf/main/libmain.a",
-            "sources": [ "C:/esp/my_host_project/my_app/main/app_main.c", "C:/esp/my_host_project/my_app/main/portal_wifi.c", "C:/esp/my_host_project/my_app/main/dns_hijack.c", "C:/esp/my_host_project/my_app/main/config_store.c", "C:/esp/my_host_project/my_app/main/footswitch.c", "C:/esp/my_host_project/my_app/main/midi_actions.c", "C:/esp/my_host_project/my_app/main/usb_midi_host.c", "C:/esp/my_host_project/my_app/main/uart_midi_out.c", "C:/esp/my_host_project/my_app/main/expfs.c" ],
+            "sources": [ "C:/esp/my_host_project/my_app/main/app_main.c", "C:/esp/my_host_project/my_app/main/portal_wifi.c", "C:/esp/my_host_project/my_app/main/dns_hijack.c", "C:/esp/my_host_project/my_app/main/config_store.c", "C:/esp/my_host_project/my_app/main/footswitch.c", "C:/esp/my_host_project/my_app/main/midi_actions.c", "C:/esp/my_host_project/my_app/main/usb_midi_host.c", "C:/esp/my_host_project/my_app/main/uart_midi_out.c", "C:/esp/my_host_project/my_app/main/expfs.c", "C:/esp/my_host_project/my_app/main/display_uart.c" ],
             "include_dirs": [ "." ]
         },
         "mbedtls": {

@@ -1,0 +1,59 @@
+Command: C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py -p com5 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 C:\esp\my_host_project\my_app\build\my_app.elf C:\esp\my_host_project\my_app\build\bootloader\bootloader.elf --force-color -m 'C:\Espressif\python_env\idf5.5_py3.13_env\Scripts\python.exe' 'C:\Espressif\frameworks\esp-idf-v5.5.2\tools\idf.py' '-p' 'com5'
+[0;33m--- esp-idf-monitor 1.8.0 on com5 115200[0m
+[0;33m--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c894c: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037e6cd: [0;33mpanic_abort[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/panic.c[0m[0m:[1;31m477[0m
+[0m--- 0x4037e2b9: [0;33mesp_system_abort[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/port/esp_system_chip.c[0m[0m:[1;31m87[0m
+[0m--- 0x403874c5: [0;33m__assert_func[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/newlib/src/assert.c[0m[0m:[1;31m80[0m
+[0m--- 0x4203b822: [0;33msys_mutex_lock[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/port/freertos/sys_arch.c[0m[0m:[1;31m65[0m
+[0m--- 0x4203bb6c: [0;33msys_arch_protect[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/port/freertos/sys_arch.c[0m[0m:[1;31m457[0m
+[0m--- 0x4202a114: [0;33msock_inc_used[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m381[0m
+[0m--- 0x4202a15b: [0;33mtryget_socket_unconn[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m472[0m
+[0m--- 0x4202a5ca: [0;33mtryget_socket[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m505[0m
+[0m--- 0x4202a5e6: [0;33mget_socket[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m524[0m
+[0m--- 0x4202c1f6: [0;33mlwip_setsockopt[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m3290[0m
+[0m--- 0x42045164: [0;33msetsockopt[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/include/lwip/sockets.h[0m[0m:[1;31m48[0m
+[0m--- (inlined by) [0;33mhttpd_resp_send_err[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_txrx.c[0m[0m:[1;31m509[0m
+[0m--- 0x4200ed4d: [0;33mh_post_layout[0m[0m at [0;32mC:/esp/my_host_project/my_app/main/portal_wifi.c[0m[0m:[1;31m369[0m
+[0m--- 0x4204551f: [0;33mhttpd_uri[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_uri.c[0m[0m:[1;31m347[0m
+[0m--- 0x42044381: [0;33mhttpd_parse_req[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_parse.c[0m[0m:[1;31m685[0m
+[0m--- 0x4204442a: [0;33mhttpd_req_new[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_parse.c[0m[0m:[1;31m821[0m
+[0m--- 0x42044a04: [0;33mhttpd_sess_process[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_sess.c[0m[0m:[1;31m428[0m
+[0m--- 0x4204322e: [0;33mhttpd_process_session[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_main.c[0m[0m:[1;31m258[0m
+[0m--- 0x420a0733: [0;33mhttpd_sess_enum[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_sess.c[0m[0m:[1;31m50[0m
+[0m--- 0x420439e0: [0;33mhttpd_server[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_main.c[0m[0m:[1;31m308[0m
+[0m--- 0x42043a4f: [0;33mhttpd_thread[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_main.c[0m[0m:[1;31m330[0m
+[0m--- 0x40381d19: [0;33mvPortTaskWrapper[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m139[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c894c: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037e6cd: [0;33mpanic_abort[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/panic.c[0m[0m:[1;31m477[0m
+[0m--- 0x4037e2b9: [0;33mesp_system_abort[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_system/port/esp_system_chip.c[0m[0m:[1;31m87[0m
+[0m--- 0x403874c5: [0;33m__assert_func[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/newlib/src/assert.c[0m[0m:[1;31m80[0m
+[0m--- 0x4203b922: [0;33msys_arch_sem_wait[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/port/freertos/sys_arch.c[0m[0m:[1;31m166[0m
+[0m--- 0x4202c05f: [0;33mlwip_select[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/lwip/lwip/src/api/sockets.c[0m[0m:[1;31m2142[0m
+[0m--- 0x4200d515: [0;33mesp_vfs_select[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/vfs/vfs.c[0m[0m:[1;31m1619[0m
+[0m--- 0x4204396b: [0;33mhttpd_server[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_main.c[0m[0m:[1;31m285[0m
+[0m--- 0x42043a4f: [0;33mhttpd_thread[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/esp_http_server/src/httpd_main.c[0m[0m:[1;31m330[0m
+[0m--- 0x40381d19: [0;33mvPortTaskWrapper[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m139[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c894c: [0;33mcall_start_cpu0[0m[0m at [0;32mC:/Espressif/frameworks/esp-idf-v5.5.2/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0;33m--- To exit from IDF monitor please use "Ctrl+]". Alternatively, you can use Ctrl+T Ctrl+X to exit.[0m
+[0m
+Traceback (most recent call last):
+  File "C:\Espressif\frameworks\esp-idf-v5.5.2\tools/idf_monitor.py", line 11, in <module>
+    sys.exit(subprocess.run([sys.executable, '-m', 'esp_idf_monitor'] + sys.argv[1:]).returncode)
+             ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 556, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1214, in communicate
+    self.wait()
+    ~~~~~~~~~^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1280, in wait
+    return self._wait(timeout=timeout)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\jakka\AppData\Local\Programs\Python\Python313\Lib\subprocess.py", line 1606, in _wait
+    result = _winapi.WaitForSingleObject(self._handle,
+                                         timeout_millis)
+KeyboardInterrupt
