@@ -1,13 +1,23 @@
 # ninja log v6
+<<<<<<< HEAD
 172	224	7892343449952323	project_elf_src_esp32s3.c	211da039373195c7
 593787	610848	7892582249054793	esp-idf/spi_flash/CMakeFiles/__idf_spi_flash.dir/spi_flash_chip_th.c.obj	8980d1b3b749bac2
 401824	419020	7892580329419148	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/rtc_module.c.obj	3de09ea1ed39475d
+=======
+593787	610848	7892582249054793	esp-idf/spi_flash/CMakeFiles/__idf_spi_flash.dir/spi_flash_chip_th.c.obj	8980d1b3b749bac2
+172	224	7892343449952323	project_elf_src_esp32s3.c	211da039373195c7
+401824	419020	7892580329419148	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/rtc_module.c.obj	3de09ea1ed39475d
+172	224	7892343449952323	C:/esp/my_host_project/my_app/build/project_elf_src_esp32s3.c	211da039373195c7
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 772242	782798	7892584033602761	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedcrypto.dir/C_/Espressif/frameworks/esp-idf-v5.5.2/components/mbedtls/port/sha/core/esp_sha1.c.obj	995a6dfd2b1a63d
 544130	561377	7892581752487834	esp-idf/esp_system/CMakeFiles/__idf_esp_system.dir/esp_err.c.obj	2fee94427326c6f6
 25532	41747	7892576566510874	esp-idf/esp_adc/CMakeFiles/__idf_esp_adc.dir/adc_continuous.c.obj	5848653d54d53f5d
 228003	243444	7892578591223888	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/core/raw.c.obj	8464290ee8231082
 870746	885262	7892585018653485	esp-idf/app_trace/CMakeFiles/__idf_app_trace.dir/port/port_uart.c.obj	1a7cbe937d2b0246
+<<<<<<< HEAD
 172	224	7892343449952323	C:/esp/my_host_project/my_app/build/project_elf_src_esp32s3.c	211da039373195c7
+=======
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 422049	439392	7892580531674564	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/deprecated/gdma_legacy.c.obj	9a8dc64e9955798c
 206686	222117	7892578378048708	esp-idf/esp_netif/CMakeFiles/__idf_esp_netif.dir/lwip/netif/esp_pbuf_ref.c.obj	f585b23c78c7ef69
 780343	784530	7892584114615631	esp-idf/mbedtls/mbedtls/3rdparty/everest/CMakeFiles/everest.dir/library/x25519.c.obj	1923c88a6f27cf41
@@ -20,7 +30,11 @@
 144	308	7892576314181985	esp-idf/esp_system/ld/sections.ld.in	3d6a178c4150d4e6
 144	308	7892576314181985	C:/esp/my_host_project/my_app/build/esp-idf/esp_system/ld/sections.ld.in	3d6a178c4150d4e6
 343980	359233	7892579750983271	esp-idf/esp_timer/CMakeFiles/__idf_esp_timer.dir/src/esp_timer_impl_systimer.c.obj	6e582aecdfccf0ea
+<<<<<<< HEAD
 4257	4620	7897292476269018	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+=======
+1179	1460	7895922118134923	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 285981	301622	7892579170993678	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/port/if_index.c.obj	8a6ccffd57131115
 475476	490088	7892560966648973	esp-idf/soc/CMakeFiles/__idf_soc.dir/esp32s3/usb_dwc_periph.c.obj	549ffd3ea7fe8c30
 255915	271263	7892578870338432	esp-idf/esp_driver_sdspi/libesp_driver_sdspi.a	ceed26ff8cc0bfa5
@@ -30,8 +44,13 @@
 952004	952471	7892585831224405	esp-idf/espcoredump/libespcoredump.a	b873b509be0ff93c
 16419	32680	7892576475375285	esp-idf/tcp_transport/CMakeFiles/__idf_tcp_transport.dir/transport_ws.c.obj	7256521063f7d07b
 513215	528110	7892581443336147	esp-idf/esp_phy/libesp_phy.a	c1a380fa678cbad4
+<<<<<<< HEAD
 4257	4620	7897292476269018	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
 21632	21748	7897032907727282	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+=======
+1179	1460	7895922118134923	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+19040	19154	7895922296744293	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 139512	155922	7892577706306254	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/crypto/sha1-prf.c.obj	558e1657c707faf3
 684884	702970	7892583160027144	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedcrypto.dir/chacha20.c.obj	31ee1abc5756b9f3
 39726	56039	7892576708442413	esp-idf/driver/CMakeFiles/__idf_driver.dir/deprecated/timer_legacy.c.obj	4e540ddfd8ebd567
@@ -60,10 +79,17 @@
 345854	361262	7892579769725623	esp-idf/cxx/CMakeFiles/__idf_cxx.dir/cxx_guards.cpp.obj	2c00dca4de0fa3ba
 904854	921154	7892585359727957	esp-idf/espcoredump/CMakeFiles/__idf_espcoredump.dir/src/core_dump_elf.c.obj	69014ccb82bd02f2
 856723	873952	7892584878419932	esp-idf/spiffs/CMakeFiles/__idf_spiffs.dir/spiffs/src/spiffs_hydrogen.c.obj	732d945ef9fd3e3
+<<<<<<< HEAD
 2248	18450	7892576333660094	esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_parse.c.obj	3e648d867ecd122a
 110091	126309	7892577412096817	esp-idf/esp_coex/CMakeFiles/__idf_esp_coex.dir/esp32s3/esp_coex_adapter.c.obj	c7f4982d7a9dd642
 405859	423061	7892580369782055	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/port/esp32s3/esp_clk_tree.c.obj	5dd2cfcde4b211a6
 31598	47820	7892576627168539	esp-idf/esp-tls/CMakeFiles/__idf_esp-tls.dir/esp_tls.c.obj	cac86f9a7a938f05
+=======
+110091	126309	7892577412096817	esp-idf/esp_coex/CMakeFiles/__idf_esp_coex.dir/esp32s3/esp_coex_adapter.c.obj	c7f4982d7a9dd642
+2248	18450	7892576333660094	esp-idf/esp_http_server/CMakeFiles/__idf_esp_http_server.dir/src/httpd_parse.c.obj	3e648d867ecd122a
+31598	47820	7892576627168539	esp-idf/esp-tls/CMakeFiles/__idf_esp-tls.dir/esp_tls.c.obj	cac86f9a7a938f05
+405859	423061	7892580369782055	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/port/esp32s3/esp_clk_tree.c.obj	5dd2cfcde4b211a6
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 797000	813514	7892584281183389	esp-idf/xtensa/CMakeFiles/__idf_xtensa.dir/xt_trax.c.obj	5d836654e85728d
 531614	547169	7892581627323294	esp-idf/hal/CMakeFiles/__idf_hal.dir/xt_wdt_hal.c.obj	888180b5b0fd170e
 905868	922169	7892585369871722	esp-idf/espcoredump/CMakeFiles/__idf_espcoredump.dir/src/core_dump_binary.c.obj	5a34546a4ea6b291
@@ -146,7 +172,11 @@
 33687	49987	7892576648053924	esp-idf/esp-tls/CMakeFiles/__idf_esp-tls.dir/esp_tls_error_capture.c.obj	6ad2be0242dbfcc1
 35709	52007	7892576668272048	esp-idf/esp-tls/CMakeFiles/__idf_esp-tls.dir/esp_tls_mbedtls.c.obj	d45083ca82b898e8
 123268	139511	7892577543864194	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/common/sae.c.obj	8f9b31f5f91f63da
+<<<<<<< HEAD
 4196	10294	7896956936019857	esp-idf/main/CMakeFiles/__idf_main.dir/footswitch.c.obj	61746b3d24cf5054
+=======
+4165	9269	7895746919822025	esp-idf/main/CMakeFiles/__idf_main.dir/footswitch.c.obj	61746b3d24cf5054
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 599895	616950	7892582310131585	esp-idf/spi_flash/CMakeFiles/__idf_spi_flash.dir/esp_flash_api.c.obj	4c4d252b546dca87
 279216	294699	7892579103345387	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/utils.c.obj	6bb02bb6e0c4d9f5
 840598	857742	7892584717166461	esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/src/security/security1.c.obj	98a4e8b16b36b93a
@@ -329,7 +359,11 @@
 105027	121245	7892577361456747	esp-idf/esp_wifi/CMakeFiles/__idf_esp_wifi.dir/src/wifi_netif.c.obj	8ae8c1927c0ec719
 276192	291851	7892579073103650	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/pppol2tp.c.obj	27e0c385dcbb82fe
 106041	122256	7892577371595419	esp-idf/esp_wifi/CMakeFiles/__idf_esp_wifi.dir/src/wifi_default_ap.c.obj	5b1cb46e0f007478
+<<<<<<< HEAD
 3233	3461	7897032723730656	esp-idf/main/libmain.a	c3ddb7f59eed4c0b
+=======
+2142	2330	7895922127770114	esp-idf/main/libmain.a	ea55ddde26ef03b4
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 108063	124280	7892577391810329	esp-idf/esp_wifi/CMakeFiles/__idf_esp_wifi.dir/regulatory/esp_wifi_regulatory.c.obj	1986afd59703e9af
 219230	234645	7892578503482432	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/core/def.c.obj	d2e59e19cd828f6
 109079	125298	7892577401981986	esp-idf/esp_wifi/CMakeFiles/__idf_esp_wifi.dir/src/smartconfig_ack.c.obj	a39a7b4c1afaf81
@@ -406,7 +440,11 @@
 155922	172178	7892577870409573	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/eap_peer/eap_fast.c.obj	917a5fce51efb210
 168131	184376	7892577992490431	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/utils/json.c.obj	5f1d788b335d8399
 193492	209693	7892578246107923	esp-idf/esp_driver_i2c/libesp_driver_i2c.a	675892ddda748b63
+<<<<<<< HEAD
 9254	10311	7896956986593679	esp-idf/main/CMakeFiles/__idf_main.dir/expfs.c.obj	6d35c63728ea80bd
+=======
+152	2142	7895922107864352	esp-idf/main/CMakeFiles/__idf_main.dir/expfs.c.obj	6d35c63728ea80bd
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 157948	174206	7892577890660911	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/eap_peer/eap_fast_pac.c.obj	bde826469d0cc0e5
 158960	175218	7892577900785284	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/src/rsn_supp/pmksa_cache.c.obj	cc1ffa76845d10ec
 550219	565877	7892561714075149	esp-idf/esp_rom/CMakeFiles/__idf_esp_rom.dir/patches/esp_rom_crc.c.obj	813d7f1014632273
@@ -438,7 +476,11 @@
 177270	193528	7892578083887388	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/esp_supplicant/src/esp_eap_client.c.obj	dc71f51e2f10fbea
 272292	287971	7892579034109939	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/ppp.c.obj	fce9ccae3655d708
 898768	916060	7892585298862301	esp-idf/esp_local_ctrl/CMakeFiles/__idf_esp_local_ctrl.dir/proto-c/esp_local_ctrl.pb-c.c.obj	ebe7e23a4ba3672a
+<<<<<<< HEAD
 3461	16923	7897032860065879	C:/esp/my_host_project/my_app/build/esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
+=======
+2330	14662	7895922252572440	C:/esp/my_host_project/my_app/build/esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 178285	194547	7892578094035520	esp-idf/wpa_supplicant/CMakeFiles/__idf_wpa_supplicant.dir/esp_supplicant/src/esp_wpa2_api_port.c.obj	5b972309a9d67eb4
 857742	874003	7892584888604550	esp-idf/spiffs/CMakeFiles/__idf_spiffs.dir/spiffs/src/spiffs_nucleus.c.obj	20ea287321966f9e
 843644	860750	7892584747622895	esp-idf/protocomm/CMakeFiles/__idf_protocomm.dir/src/crypto/srp6a/esp_srp_mpi.c.obj	c9b0f28b585f27bb
@@ -561,7 +603,11 @@
 423061	440403	7892580541803754	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/dma/esp_async_memcpy.c.obj	12d60f35fd30f0e5
 333052	348565	7892579641709791	esp-idf/esp_driver_uart/CMakeFiles/__idf_esp_driver_uart.dir/src/uart_wakeup.c.obj	71782f7a4673415
 525561	540495	7892581566801739	esp-idf/hal/CMakeFiles/__idf_hal.dir/cam_hal.c.obj	213cea562649e076
+<<<<<<< HEAD
 2162	10293	7896956915675926	esp-idf/main/CMakeFiles/__idf_main.dir/dns_hijack.c.obj	72bee798f7fed06f
+=======
+2143	9268	7895746899595828	esp-idf/main/CMakeFiles/__idf_main.dir/dns_hijack.c.obj	72bee798f7fed06f
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 262646	278205	7892578937644260	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/eap.c.obj	138e58d2a684f777
 263596	279216	7892578947147042	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/ecp.c.obj	77a2b8e131d0b7b7
 264617	280176	7892578957355384	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/eui64.c.obj	cf39ff4246b42280
@@ -570,7 +616,11 @@
 265625	281131	7892578967435268	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/fsm.c.obj	cbbbfa7b348b98e3
 469292	483786	7892560904806060	esp-idf/soc/CMakeFiles/__idf_soc.dir/esp32s3/lcd_periph.c.obj	c40da8b07023a259
 314777	331032	7892579458950503	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_page.cpp.obj	5ad3bfa47bb850c5
+<<<<<<< HEAD
 4245	4536	7897292476137494	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+=======
+1168	1390	7895922118030111	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 267562	283078	7892578986802706	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/ipv6cp.c.obj	51f718d3fa504444
 655301	672612	7892582864191374	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedtls.dir/ssl_tls13_server.c.obj	e5e5f8d0b7b09178
 271286	287020	7892579024042887	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/multilink.c.obj	5ba72bcb0fd899ec
@@ -604,7 +654,11 @@
 295676	311733	7892579267946296	esp-idf/lwip/CMakeFiles/__idf_lwip.dir/lwip/src/netif/ppp/polarssl/sha1.c.obj	2eadd10564947241
 316794	333052	7892579479121228	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_storage.cpp.obj	7ee7202e2909e956
 298585	314777	7892579297029089	esp-idf/vfs/CMakeFiles/__idf_vfs.dir/vfs_eventfd.c.obj	1570d3dc5c7fb9e0
+<<<<<<< HEAD
 16923	21251	7897032860631765	my_app.elf	4ca5ba83360bda78
+=======
+14662	18689	7895922252973177	my_app.elf	4ca5ba83360bda78
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 382587	399804	7892580137053108	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/FreeRTOS-Kernel/stream_buffer.c.obj	eecba3310ba2bf9f
 299603	315786	7892579307217753	esp-idf/vfs/CMakeFiles/__idf_vfs.dir/vfs_semihost.c.obj	ecc3f521d7a53dad
 271263	286987	7892579023812057	esp-idf/esp_driver_sdmmc/libesp_driver_sdmmc.a	8751fb9d55249a41
@@ -619,7 +673,11 @@
 311733	328006	7892579428521359	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_api.cpp.obj	d6ce420f51fae480
 337957	353422	7892579690748975	esp-idf/esp_driver_gptimer/CMakeFiles/__idf_esp_driver_gptimer.dir/src/gptimer_common.c.obj	fc463c825d915238
 606905	624033	7892582380236590	esp-idf/esp_mm/CMakeFiles/__idf_esp_mm.dir/esp_cache_utils.c.obj	51a4c9962d551cac
+<<<<<<< HEAD
 2450	2566	7897032716994010	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+=======
+1439	1584	7895922122111749	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 312747	329011	7892579438660469	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_cxx_api.cpp.obj	129695797c857027
 313763	330018	7892579448815783	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_item_hash_list.cpp.obj	21228a717b36972b
 315786	332042	7892579469041147	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_pagemanager.cpp.obj	ba6da293fdb24565
@@ -630,7 +688,11 @@
 878155	895412	7892585092730940	esp-idf/esp_driver_touch_sens/CMakeFiles/__idf_esp_driver_touch_sens.dir/hw_ver2/touch_version_specific.c.obj	575bfc1eae9d8419
 321930	337957	7892579530486065	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_partition_manager.cpp.obj	43058e6983910c15
 322941	338966	7892579540600564	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_types.cpp.obj	bba8adbe94e5d8d4
+<<<<<<< HEAD
 4245	4536	7897292476137494	bootloader/bootloader.elf	30f8fadeb6d571b2
+=======
+1168	1390	7895922118030111	bootloader/bootloader.elf	30f8fadeb6d571b2
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 509627	524679	7892581407460384	esp-idf/hal/CMakeFiles/__idf_hal.dir/sdm_hal.c.obj	bf5377719819d901
 324973	340950	7892579560917427	esp-idf/nvs_flash/CMakeFiles/__idf_nvs_flash.dir/src/nvs_bootloader.c.obj	e37698a34ad2903f
 493570	508772	7892581246888361	esp-idf/hal/CMakeFiles/__idf_hal.dir/systimer_hal.c.obj	8197363867510622
@@ -677,14 +739,22 @@
 369742	385624	7892580008608523	esp-idf/newlib/CMakeFiles/__idf_newlib.dir/src/port/xtensa/stdatomic_s32c1i.c.obj	56d0fbd24283298d
 370673	387643	7892580017915968	esp-idf/newlib/CMakeFiles/__idf_newlib.dir/src/flockfile.c.obj	4d78af02d1e45b75
 714111	731368	7892583452295982	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedcrypto.dir/padlock.c.obj	e121418499a3b222
+<<<<<<< HEAD
 6217	10295	7896956956225881	esp-idf/main/CMakeFiles/__idf_main.dir/usb_midi_host.c.obj	e37345548a113da7
+=======
+6198	9271	7895746940158402	esp-idf/main/CMakeFiles/__idf_main.dir/usb_midi_host.c.obj	e37345548a113da7
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 373543	390688	7892580046612861	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/heap_idf.c.obj	ee1be8ebf89ef2fc
 414960	432152	7892580460785671	esp-idf/esp_hw_support/CMakeFiles/__idf_esp_hw_support.dir/sleep_modes.c.obj	4933d5812f1a6143
 374558	391697	7892580056754398	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/app_startup.c.obj	14cb827e1c2eda2c
 728332	745753	7892583594500468	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedcrypto.dir/psa_crypto_cipher.c.obj	bd2fc017d7db4b18
 915048	931377	7892585461666903	esp-idf/fatfs/CMakeFiles/__idf_fatfs.dir/port/freertos/ffsystem.c.obj	71237a0a13a38a7d
 375539	392704	7892580066580458	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/port_common.c.obj	295a318d537c0593
+<<<<<<< HEAD
 6846	6988	7896911981921855	esp-idf/esp_app_format/libesp_app_format.a	2ee7e2a545431b98
+=======
+6089	6227	7895782509671424	esp-idf/esp_app_format/libesp_app_format.a	2ee7e2a545431b98
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 379483	396740	7892580106016877	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/FreeRTOS-Kernel/tasks.c.obj	5f872c441f628668
 381570	398790	7892580126892139	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/FreeRTOS-Kernel/event_groups.c.obj	f3648dd9654124e8
 385624	402832	7892580167425256	esp-idf/freertos/CMakeFiles/__idf_freertos.dir/FreeRTOS-Kernel/portable/xtensa/xtensa_init.c.obj	84b919031035b3ff
@@ -799,7 +869,11 @@
 504281	519349	7892581353991536	esp-idf/hal/CMakeFiles/__idf_hal.dir/mcpwm_hal.c.obj	2c53ccb290dd1cdc
 505196	520261	7892581363152299	esp-idf/hal/CMakeFiles/__idf_hal.dir/uhci_hal.c.obj	b06789adb238db02
 506083	521158	7892581372014871	esp-idf/hal/CMakeFiles/__idf_hal.dir/twai_hal_v1.c.obj	24ca095d11f07f2f
+<<<<<<< HEAD
 21632	21748	7897032907727282	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+=======
+19040	19154	7895922296744293	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 507045	521977	7892581381632730	esp-idf/hal/CMakeFiles/__idf_hal.dir/gdma_hal_top.c.obj	7e0b6218dd5006c
 508772	523823	7892581398913591	esp-idf/hal/CMakeFiles/__idf_hal.dir/i2s_hal.c.obj	42390c27ab4131ce
 517544	532466	7892581486626329	esp-idf/hal/CMakeFiles/__idf_hal.dir/brownout_hal.c.obj	c1f4ab7c8e16df46
@@ -899,7 +973,11 @@
 625044	642119	7892582561626919	esp-idf/bootloader_support/CMakeFiles/__idf_bootloader_support.dir/src/esp32s3/secure_boot_secure_features.c.obj	b49bd94ed3054574
 628077	645148	7892582591956550	esp-idf/efuse/CMakeFiles/__idf_efuse.dir/esp32s3/esp_efuse_rtc_calib.c.obj	89730bb1e81c9a25
 874103	891346	7892585052213193	esp-idf/esp_driver_cam/CMakeFiles/__idf_esp_driver_cam.dir/dvp_share_ctrl.c.obj	56f53510d3ae5cd2
+<<<<<<< HEAD
 105	13208	7897295247032199	build.ninja	46e8cfa487d7addc
+=======
+48	11919	7896811659899782	build.ninja	46e8cfa487d7addc
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 629135	646194	7892582602537222	esp-idf/efuse/CMakeFiles/__idf_efuse.dir/esp32s3/esp_efuse_utility.c.obj	73c02abb45868137
 630146	647204	7892582612642757	esp-idf/efuse/CMakeFiles/__idf_efuse.dir/src/esp_efuse_api.c.obj	434fed86747383d2
 631161	648210	7892582622795587	esp-idf/efuse/CMakeFiles/__idf_efuse.dir/src/esp_efuse_fields.c.obj	5dfd283029fd01f4
@@ -913,7 +991,11 @@
 891346	908905	7892585224647607	esp-idf/esp_lcd/CMakeFiles/__idf_esp_lcd.dir/i2c/esp_lcd_panel_io_i2c_v1.c.obj	58006a2ed1de4576
 639254	656311	7892582703724104	esp-idf/esp_bootloader_format/CMakeFiles/__idf_esp_bootloader_format.dir/esp_bootloader_desc.c.obj	ef1e49b4bdb7cb83
 709051	726307	7892583401691669	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedcrypto.dir/md.c.obj	bcfe7f718d160872
+<<<<<<< HEAD
 170	6846	7896911915155386	esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj	bed596ba745711bb
+=======
+153	6088	7895782450312130	esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj	73124f98bbbab054
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
 822982	823161	7892351679551964	C:/esp/my_host_project/my_app/build/x509_crt_bundle.S	98b5a64ae8588c59
 641113	658339	7892582722318819	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedtls.dir/debug.c.obj	d1fa56b0a8b4faa0
 643126	660359	7892582742438406	esp-idf/mbedtls/mbedtls/library/CMakeFiles/mbedtls.dir/mps_trace.c.obj	88cd5f8b81c0048f
@@ -1095,6 +1177,7 @@
 952247	952471	7892585833656311	esp-idf/rt/librt.a	5320af76ed5674f5
 952324	952677	7892585834432467	esp-idf/wifi_provisioning/libwifi_provisioning.a	bcf232a316086191
 816167	983260	7892353280586117	bootloader-prefix/src/bootloader-stamp/bootloader-configure	c69a26fddd556eb6
+<<<<<<< HEAD
 3461	16923	7897032860065879	esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
 996316	997340	7892353411193961	CMakeFiles/my_app.elf.dir/project_elf_src_esp32s3.c.obj	53b0166f4e10549c
 21252	21631	7897032907647219	.bin_timestamp	7c9b099f5ca1fffe
@@ -1147,3 +1230,193 @@
 22936	23088	7897295477300151	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
 23088	139174	7897295478827105	CMakeFiles/flash	ad181a72fb8e85d0
 23088	139174	7897295478827105	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+=======
+2330	14662	7895922252572440	esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
+996316	997340	7892353411193961	CMakeFiles/my_app.elf.dir/project_elf_src_esp32s3.c.obj	53b0166f4e10549c
+18689	19040	7895922296679184	.bin_timestamp	7c9b099f5ca1fffe
+18689	19040	7895922296679184	C:/esp/my_host_project/my_app/build/.bin_timestamp	7c9b099f5ca1fffe
+1168	1390	7895922118030111	bootloader/bootloader.bin	30f8fadeb6d571b2
+1168	1390	7895922118030111	bootloader/bootloader.map	30f8fadeb6d571b2
+1168	1390	7895922118030111	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+1168	1390	7895922118030111	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+1168	1390	7895922118030111	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+1168	1390	7895922118030111	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+1390	1439	7895922120249037	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+1390	1439	7895922120249037	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+1439	1584	7895922122111749	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+1439	1584	7895922122111749	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+1439	1584	7895922122111749	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+19154	136322	7895922297889761	CMakeFiles/flash	ad181a72fb8e85d0
+19154	136322	7895922297889761	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+59	69236	7892575441672192	CMakeFiles/menuconfig	ec342320ef873941
+59	69236	7892575441672192	C:/esp/my_host_project/my_app/build/CMakeFiles/menuconfig	ec342320ef873941
+7216	9272	7895746950335194	esp-idf/main/CMakeFiles/__idf_main.dir/uart_midi_out.c.obj	1b43ccf14356a08d
+123	12919	7896811659899782	build.ninja	46e8cfa487d7addc
+939	1161	7896811670142350	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+939	1161	7896811670142350	bootloader/bootloader.elf	30f8fadeb6d571b2
+939	1161	7896811670142350	bootloader/bootloader.bin	30f8fadeb6d571b2
+939	1161	7896811670142350	bootloader/bootloader.map	30f8fadeb6d571b2
+939	1161	7896811670142350	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+939	1161	7896811670142350	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+939	1161	7896811670142350	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+939	1161	7896811670142350	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+1162	1210	7896811672374561	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+1162	1210	7896811672374561	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+948	1225	7896811670238702	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+948	1225	7896811670238702	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+1210	1314	7896811673840762	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+1210	1314	7896811673840762	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+1210	1314	7896811673840762	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+1210	1314	7896811673840762	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+175	5884	7896811662501372	esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj	96e742ae849b9287
+5884	6036	7896811719600123	esp-idf/esp_app_format/libesp_app_format.a	2ee7e2a545431b98
+6036	18510	7896811845446297	esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
+6036	18510	7896811845446297	C:/esp/my_host_project/my_app/build/esp-idf/esp_system/ld/sections.ld	b78af4efa80f3888
+18510	22811	7896811845865224	my_app.elf	4ca5ba83360bda78
+22811	23169	7896811892389878	.bin_timestamp	7c9b099f5ca1fffe
+22811	23169	7896811892389878	C:/esp/my_host_project/my_app/build/.bin_timestamp	7c9b099f5ca1fffe
+23170	23285	7896811892463356	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+23170	23285	7896811892463356	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+23285	140183	7896811893615828	CMakeFiles/flash	ad181a72fb8e85d0
+23285	140183	7896811893615828	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+176	295	7896816706318717	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+176	295	7896816706318717	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+146	354	7896816706027548	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+146	354	7896816706027548	bootloader/bootloader.elf	30f8fadeb6d571b2
+146	354	7896816706027548	bootloader/bootloader.bin	30f8fadeb6d571b2
+146	354	7896816706027548	bootloader/bootloader.map	30f8fadeb6d571b2
+146	354	7896816706027548	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+146	354	7896816706027548	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+146	354	7896816706027548	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+146	354	7896816706027548	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+355	396	7896816708113143	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+355	396	7896816708113143	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+158	430	7896816706137548	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+158	430	7896816706137548	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+396	496	7896816709463304	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+396	496	7896816709463304	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+396	496	7896816709463304	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+396	496	7896816709463304	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+496	117474	7896816709528119	CMakeFiles/flash	ad181a72fb8e85d0
+496	117474	7896816709528119	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+240	378	7896820290233901	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+240	378	7896820290233901	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+215	455	7896820289985760	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+215	455	7896820289985760	bootloader/bootloader.elf	30f8fadeb6d571b2
+215	455	7896820289985760	bootloader/bootloader.bin	30f8fadeb6d571b2
+215	455	7896820289985760	bootloader/bootloader.map	30f8fadeb6d571b2
+215	455	7896820289985760	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+215	455	7896820289985760	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+215	455	7896820289985760	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+215	455	7896820289985760	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+455	506	7896820292383826	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+455	506	7896820292383826	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+224	571	7896820290085781	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+224	571	7896820290085781	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+506	624	7896820294010051	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+506	624	7896820294010051	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+506	624	7896820294010051	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+506	624	7896820294010051	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+625	117675	7896820294080047	CMakeFiles/flash	ad181a72fb8e85d0
+625	117675	7896820294080047	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+211	352	7896824288865688	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+211	352	7896824288865688	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+183	418	7896824288584260	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+183	418	7896824288584260	bootloader/bootloader.elf	30f8fadeb6d571b2
+183	418	7896824288584260	bootloader/bootloader.bin	30f8fadeb6d571b2
+183	418	7896824288584260	bootloader/bootloader.map	30f8fadeb6d571b2
+183	418	7896824288584260	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+183	418	7896824288584260	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+183	418	7896824288584260	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+183	418	7896824288584260	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+419	473	7896824290940353	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+419	473	7896824290940353	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+194	544	7896824288694256	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+194	544	7896824288694256	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+473	592	7896824292617192	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+473	592	7896824292617192	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+473	592	7896824292617192	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+473	592	7896824292617192	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+593	117530	7896824292677214	CMakeFiles/flash	ad181a72fb8e85d0
+593	117530	7896824292677214	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+220	355	7896828978289581	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+220	355	7896828978289581	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+196	419	7896828978046444	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+196	419	7896828978046444	bootloader/bootloader.elf	30f8fadeb6d571b2
+196	419	7896828978046444	bootloader/bootloader.bin	30f8fadeb6d571b2
+196	419	7896828978046444	bootloader/bootloader.map	30f8fadeb6d571b2
+196	419	7896828978046444	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+196	419	7896828978046444	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+196	419	7896828978046444	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+196	419	7896828978046444	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+420	466	7896828980284757	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+420	466	7896828980284757	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+205	530	7896828978140667	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+205	530	7896828978140667	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+466	576	7896828981778284	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+466	576	7896828981778284	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+466	576	7896828981778284	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+466	576	7896828981778284	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+576	117621	7896828981850465	CMakeFiles/flash	ad181a72fb8e85d0
+576	117621	7896828981850465	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+178	294	7896835688667652	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+178	294	7896835688667652	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+153	345	7896835688421620	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+153	345	7896835688421620	bootloader/bootloader.elf	30f8fadeb6d571b2
+153	345	7896835688421620	bootloader/bootloader.bin	30f8fadeb6d571b2
+153	345	7896835688421620	bootloader/bootloader.map	30f8fadeb6d571b2
+153	345	7896835688421620	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+153	345	7896835688421620	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+153	345	7896835688421620	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+153	345	7896835688421620	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+345	387	7896835690345891	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+345	387	7896835690345891	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+162	434	7896835688512916	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+162	434	7896835688512916	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+387	496	7896835691788086	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+387	496	7896835691788086	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+387	496	7896835691788086	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+387	496	7896835691788086	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+496	117546	7896835691851778	CMakeFiles/flash	ad181a72fb8e85d0
+496	117546	7896835691851778	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+181	327	7896844172240851	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+181	327	7896844172240851	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+156	393	7896844171990949	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+156	393	7896844171990949	bootloader/bootloader.elf	30f8fadeb6d571b2
+156	393	7896844171990949	bootloader/bootloader.bin	30f8fadeb6d571b2
+156	393	7896844171990949	bootloader/bootloader.map	30f8fadeb6d571b2
+156	393	7896844171990949	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+156	393	7896844171990949	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+156	393	7896844171990949	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+156	393	7896844171990949	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+394	454	7896844174367197	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+394	454	7896844174367197	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+165	528	7896844172077843	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+165	528	7896844172077843	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+454	591	7896844176261175	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+454	591	7896844176261175	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+454	591	7896844176261175	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+454	591	7896844176261175	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+591	117747	7896844176341302	CMakeFiles/flash	ad181a72fb8e85d0
+591	117747	7896844176341302	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+178	313	7896847535944266	esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+178	313	7896847535944266	C:/esp/my_host_project/my_app/build/esp-idf/esptool_py/CMakeFiles/app_check_size	1d8b8e4fab32051c
+154	364	7896847535699516	bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+154	364	7896847535699516	bootloader/bootloader.elf	30f8fadeb6d571b2
+154	364	7896847535699516	bootloader/bootloader.bin	30f8fadeb6d571b2
+154	364	7896847535699516	bootloader/bootloader.map	30f8fadeb6d571b2
+154	364	7896847535699516	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build	30f8fadeb6d571b2
+154	364	7896847535699516	C:/esp/my_host_project/my_app/build/bootloader/bootloader.elf	30f8fadeb6d571b2
+154	364	7896847535699516	C:/esp/my_host_project/my_app/build/bootloader/bootloader.bin	30f8fadeb6d571b2
+154	364	7896847535699516	C:/esp/my_host_project/my_app/build/bootloader/bootloader.map	30f8fadeb6d571b2
+365	406	7896847537803537	bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+365	406	7896847537803537	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install	687a32a69d0807e7
+163	460	7896847535789551	CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+163	460	7896847535789551	C:/esp/my_host_project/my_app/build/CMakeFiles/spiffs_storage_bin	609c422c31ed0e52
+407	512	7896847539213603	CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+407	512	7896847539213603	bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+407	512	7896847539213603	C:/esp/my_host_project/my_app/build/CMakeFiles/bootloader-complete	6307ff6ea78f65c8
+407	512	7896847539213603	C:/esp/my_host_project/my_app/build/bootloader-prefix/src/bootloader-stamp/bootloader-done	6307ff6ea78f65c8
+513	117630	7896847539289252	CMakeFiles/flash	ad181a72fb8e85d0
+513	117630	7896847539289252	C:/esp/my_host_project/my_app/build/CMakeFiles/flash	ad181a72fb8e85d0
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)

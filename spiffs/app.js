@@ -65,17 +65,7 @@ function clipText(s, maxLen) {
 
 function setMsg(text, ok = true) {
   const el = must("msg");
-  const t = String(text || "");
-
-  // Suppress a noisy validation toast that can show up during intermediate UI states.
-  // (User-visible behavior: the toast simply doesn't appear.)
-  if (!ok && /button\s+config\s+invalid/i.test(t)) {
-    el.textContent = "";
-    el.className = "msg";
-    return;
-  }
-
-  el.textContent = t;
+  el.textContent = text || "";
   el.className = "msg " + (ok ? "ok" : "bad");
 }
 
@@ -1504,7 +1494,31 @@ function setupUI() {
   must("addLeft").onclick = () => tryAddRow(must("shortList"));
   must("addRight").onclick = () => tryAddRow(must("longList"));
 
-  // (removed) manual reload buttons: UI now stays simpler; users can just refresh the page.
+  const _btnReload = $("btnReload");
+  if (_btnReload) _btnReload.onclick = async () => {
+    try {
+      await flushPendingSaves();
+      await loadButton();
+      setMsg("reloaded ✅");
+    } catch (e) {
+      setMsg("reload failed: " + e.message, false);
+    }
+  };
+
+
+  // exp/fs reload
+  const expBtn = $("btnExpfsReload");
+  if (expBtn) {
+    expBtn.onclick = async () => {
+      try {
+        await flushPendingSaves();
+        await loadExpfs();
+        setMsg("reloaded ✅");
+      } catch (e) {
+        setMsg("reload failed: " + e.message, false);
+      }
+    };
+  }
 
   must("pressMode").onchange = async () => {
     try {

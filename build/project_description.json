@@ -1,7 +1,11 @@
 {
     "version":            "1.2",
     "project_name":       "my_app",
+<<<<<<< HEAD
     "project_version":    "4194fe8-dirty",
+=======
+    "project_version":    "fb46a05-dirty",
+>>>>>>> parent of 4194fe8 (แก้หน้าเว็ปให้ดูดีขึ้น)
     "project_path":       "C:/esp/my_host_project/my_app",
     "idf_path":           "C:/Espressif/frameworks/esp-idf-v5.5.2",
     "build_dir":          "C:/esp/my_host_project/my_app/build",
