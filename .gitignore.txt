@@ -1,8 +1,14 @@
+# esp-idf build outputs
 build/
 managed_components/
 dependencies.lock
-sdkconfig
+
+# keep sdkconfig (tracked), ignore generated/old variants
 sdkconfig.old
+sdkconfig.*
+!sdkconfig
+
+# binaries / objects
 *.bin
 *.elf
 *.map
@@ -11,6 +17,16 @@ sdkconfig.old
 *.d
 *.log
 *.tmp
+
+# mac/windows/editor
 .DS_Store
 .vscode/
 .idea/
+CMakeFiles/
+cmake-build-*/
+
+# export/report artifacts
+_export/
+_report/
+_export*/
+_report*/
